@@ -85,6 +85,25 @@ crypto-producer  | 📡 Coinbase Ingest -> ETH-USD | Price: $2013.5900 | Vol: 0.
 crypto-producer  | 📡 Coinbase Ingest -> SOL-USD | Price: $82.0600 | Vol: 0.588498
 ```
 
+### 3. Run dbt Analytical Transformations
+To compile and materialize the real-time summarized tables inside ClickHouse:
+
+1. **Activate the Python virtual environment**:
+   ```bash
+   source .venv/bin/activate
+   ```
+2. **Navigate into the dbt project folder**:
+   > [!IMPORTANT]
+   > You **must** run `dbt` commands inside the `dbt_transformations/crypto_metrics` directory where `dbt_project.yml` resides.
+   ```bash
+   cd dbt_transformations/crypto_metrics
+   ```
+3. **Execute the dbt models**:
+   ```bash
+   dbt run
+   ```
+   This will incrementally materialize both `minutes_pricing` and `seconds_pricing` tables in ClickHouse in less than a second!
+
 ---
 
 ## 🔍 Verification & Observability
