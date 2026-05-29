@@ -2,38 +2,6 @@
 
 A lightweight, free, and completely open-source real-time data streaming pipeline. This architecture ingests high-frequency live trade events from Coinbase, buffers them via Apache Kafka, and streams them directly into ClickHouse OLAP database for sub-second analytical querying.
 
-```
-                  ┌──────────────────┐
-                  │   Coinbase WSS   │
-                  └────────┬─────────┘
-                           │ (WSS Stream)
-                           ▼
-                  ┌──────────────────┐
-                  │ Python Producer  │
-                  └────────┬─────────┘
-                           │ (JSON Bytes)
-                           ▼
-                  ┌──────────────────┐
-                  │   Apache Kafka   │◀──────┐
-                  └────────┬─────────┘       │ (Monitor)
-                           │                 │
-            (Native Engine)│                 │
-                           ▼                 │
-                  ┌──────────────────┐  ┌────┴─────┐
-                  │    ClickHouse    │  │ Kafka UI │
-                  └────────┬─────────┘  └──────────┘
-                           │ (Auto-Pump)
-                           ▼
-                  ┌──────────────────┐
-                  │   MergeTree DB   │
-                  └────────┬─────────┘
-                           │ (Upcoming)
-                           ▼
-                  ┌──────────────────┐
-                  │     dbt Core     │
-                  └──────────────────┘
-```
-
 ---
 
 ## 🏗️ System Architecture
@@ -50,7 +18,7 @@ graph TD
         Kafka["🚀 Apache Kafka Broker (KRaft)"]:::tech
         KafkaUI["📊 Kafka UI Dashboard"]:::tech
         ClickHouse["⚡ ClickHouse Server"]:::tech
-        dbt["🛠️ dbt Core (Upcoming)"]:::tech
+        dbt["🛠️ dbt Core"]:::tech
     end
 
     Coinbase -->|Real-Time Ticker Stream| Producer
