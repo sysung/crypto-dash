@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS crypto_trades_raw (
     timestamp Int64,
     trade_time DateTime MATERIALIZED toDateTime(timestamp / 1000)
 ) ENGINE = MergeTree()
+PARTITION BY toYYYYMMDD(trade_time)
 ORDER BY (symbol, trade_time);
 
 -- 2. Create the Pipe to Kafka
@@ -22,4 +23,9 @@ SETTINGS kafka_broker_list = 'kafka:29092',
 
 -- 3. Create the automated Pump
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_crypto_trades_raw TO crypto_trades_raw AS
-SELECT * FROM kafka_crypto_trades;
+SELECT 
+    symbol,
+    price,
+    volume,
+    timestamp
+FROM kafka_crypto_trades;

@@ -1,5 +1,6 @@
 {{ config(
-    materialized='table'
+    materialized='incremental',
+    unique_key=['symbol', 'analytical_second']
 ) }}
 
 WITH raw_stream AS (
@@ -10,6 +11,10 @@ WITH raw_stream AS (
         timestamp,
         trade_time
     FROM default.crypto_trades_raw
+    {% if is_incremental() %}
+        -- Only process new trades that have arrived since the last run
+        WHERE trade_time > (SELECT max(analytical_second) FROM {{ this }})
+    {% endif %}
 )
 
 SELECT
