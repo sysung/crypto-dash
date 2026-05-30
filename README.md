@@ -1,6 +1,6 @@
 # 🪙 Real-Time Crypto Streaming Pipeline
 
-A lightweight, free, and completely open-source real-time data streaming pipeline. This architecture ingests high-frequency live trade events from Coinbase, buffers them via Apache Kafka, and streams them directly into ClickHouse OLAP database for sub-second analytical querying.
+A production-grade, real-time data streaming pipeline. This architecture ingests high-frequency trade events from Coinbase, buffers them via Apache Kafka, and streams them directly into a ClickHouse OLAP database for sub-second analytical querying and real-time visualization.
 
 ---
 
@@ -14,182 +14,139 @@ graph TD
     Coinbase["🔌 Coinbase Websocket Feed"]:::external
     
     subgraph Docker ["🐳 Docker Compose Stack"]
-        Producer["🐍 Python Ingest Producer"]:::tech
-        Kafka["🚀 Apache Kafka Broker (KRaft)"]:::tech
-        KafkaUI["📊 Kafka UI Dashboard"]:::tech
+        Producer["🐍 Python Producer"]:::tech
+        Kafka["🚀 Apache Kafka (KRaft)"]:::tech
+        KafkaUI["📊 Kafka UI"]:::tech
         ClickHouse["⚡ ClickHouse Server"]:::tech
-        dbt["🛠️ dbt Core"]:::tech
     end
 
-    Coinbase -->|Real-Time Ticker Stream| Producer
+    Coinbase -->|Ticker Stream| Producer
     Producer -->|JSON Payloads| Kafka
-    Kafka -.->|Broker Monitoring| KafkaUI
-    Kafka -->|Native Kafka Engine| ClickHouse
-    ClickHouse -->|Materialized View Pump| ClickHouse
-    ClickHouse -.->|OLAP Compute| dbt
+    Kafka -.->|Monitoring| KafkaUI
+    Kafka -->|Native Engine| ClickHouse
 ```
 
 ---
 
 ## ⚡ Core Features
 
-- **Decoupled Shock Absorption**: Utilizes Apache Kafka in modern ZooKeeper-less **KRaft Mode** to buffer bursty real-time trade events without data loss.
-- **Zero-Middleman Ingestion**: ClickHouse pulls directly from Kafka using its **Native Kafka Engine** coupled with an automated **Materialized View Pump**, completely eliminating the need for bulky middleman connectors (like Kafka Connect or Snowflake).
-- **Instant Observability**: Fully integrated **Kafka UI** to visually audit topics, offsets, schema structures, and ingestion throughput.
-- **Production-Ready Portability**: The entire stack is completely containerized and launches reliably with a single-line command.
+- **Shock-Absorbing Buffer**: Uses Apache Kafka in modern **KRaft mode** to buffer bursty Coinbase trade events without data loss.
+- **Zero-Connector Ingestion**: ClickHouse pulls directly from Kafka using its **Native Kafka Engine** and a **Materialized View**, eliminating heavy middleware.
+- **Optimized DB Design**: Uses a highly optimized ClickHouse `MergeTree` partitioned daily by trade time and ordered by token symbol.
+- **Resilient Producer**: Python ingestion engine featuring thread-safe queue buffering, network compression (LZ4), and progressive startup backoffs.
+- **Fully Containerized**: The entire data platform boots reliably with a single Docker Compose command.
 
 ---
 
 ## 🛠️ Technology Stack
 
-| Component | Tool | Description | Status |
-| :--- | :--- | :--- | :--- |
-| **Data Source** | [Coinbase Exchange Websocket](https://docs.cloud.coinbase.com/exchange/docs/websocket-overview) | Real-time public trade ticker feed | ✅ Active |
-| **Ingestion Producer** | [Python 3.11 / 3.12](https://www.python.org/) | Lightweight, persistent client mapping stream payloads | ✅ Active |
-| **Message Broker** | [Apache Kafka (KRaft)](https://kafka.apache.org/) | Append-only event store acting as ingest shock-absorber | ✅ Active |
-| **Observability UI** | [Kafka UI](https://github.com/provectuslabs/kafka-ui) | Real-time visual dashboard for topic inspection | ✅ Active |
-| **OLAP Database** | [ClickHouse](https://clickhouse.com/) | Ultra-fast column-oriented database for real-time analytics | ✅ Active |
-| **Transformation** | [dbt Core](https://www.getdbt.com/) | Modern SQL-based ELT modeling and data transformations | ✅ Active |
-| **Orchestration** | [Docker / Compose](https://www.docker.com/) | Complete multi-container lifecycle orchestration | ✅ Active |
+| Component | Technology | Description |
+| :--- | :--- | :--- |
+| **Data Source** | [Coinbase WebSocket](https://docs.cloud.coinbase.com/exchange/docs/websocket-overview) | Real-time public trade ticker feed |
+| **Ingestion Engine** | [Python 3.11+](https://www.python.org/) | Thread-buffered client publishing to Kafka |
+| **Message Broker** | [Apache Kafka (KRaft)](https://kafka.apache.org/) | Scalable append-only event queueing |
+| **Observability** | [Kafka UI](https://github.com/provectuslabs/kafka-ui) | Web UI for broker monitoring and topic inspection |
+| **OLAP Database** | [ClickHouse](https://clickhouse.com/) | Columnar database for high-throughput, low-latency analytics |
+| **Orchestration** | [Docker Compose](https://www.docker.com/) | Multi-container lifecycle orchestration |
 
 ---
 
 ## 🚀 Quick Start Guide
 
 ### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (ensure the Docker daemon is active)
-- **Python 3.11 or 3.12** (Important: Python 3.13 and 3.14 are not supported yet due to `dbt-core` and internal library compilation limitations)
-- `curl` (for testing/inspection)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
+- Python 3.11+ (optional, for local development)
+- `curl` (for testing)
 
-### 1. Spin Up the Pipeline
-Run the following command in the root folder to boot the containerized network:
+### 1. Boot the Stack
+Spin up the containerized pipeline from the root directory:
 ```bash
 docker compose up -d --build
 ```
-This automatically:
-1. Provisions the isolated `kafka-net` network.
-2. Initializes the single-node **Kafka Broker** in KRaft mode.
-3. Fires up the **Kafka UI** on port `8080`.
-4. Boots the **Python Ingest Producer** which binds to Coinbase and begins publishing to the `raw_crypto_trades` topic.
-5. Launches the **ClickHouse OLAP Database** and boots its initial schema layout.
+This initializes Kafka (KRaft), Kafka UI (port `8080`), ClickHouse (port `8123` & `9000`), and the Python producer.
 
-### 2. Monitor Live Stream Ingestion
-Check the live output of your Coinbase producer:
+### 2. Verify Data Ingestion
+Check the live Coinbase stream ingestion logs:
 ```bash
 docker compose logs -f crypto-producer
 ```
-You should immediately see logs showing ingested events:
+You should see active trade ticker events:
 ```text
 crypto-producer  | 📡 Coinbase Ingest -> BTC-USD | Price: $73368.0000 | Vol: 0.021497
 crypto-producer  | 📡 Coinbase Ingest -> ETH-USD | Price: $2013.5900 | Vol: 0.023499
-crypto-producer  | 📡 Coinbase Ingest -> SOL-USD | Price: $82.0600 | Vol: 0.588498
 ```
 
-### 3. Run dbt Analytical Transformations
-To compile and materialize the real-time summarized tables inside ClickHouse:
-
-1. **Activate the Python virtual environment**:
-   ```bash
-   source .venv/bin/activate
-   ```
-2. **Navigate into the dbt project folder**:
-   > [!IMPORTANT]
-   > You **must** run `dbt` commands inside the `dbt_transformations/crypto_metrics` directory where `dbt_project.yml` resides.
-   ```bash
-   cd dbt_transformations/crypto_metrics
-   ```
-3. **Execute the dbt models**:
-   ```bash
-   dbt run
-   ```
-   This will incrementally materialize both `minutes_pricing` and `seconds_pricing` tables in ClickHouse in less than a second!
+### 3. Access Dashboards & Web UI
+* **Kafka UI**: Browse topic partitions and messages at `http://localhost:8080`.
+* **ClickHouse Playground**: Write queries in the browser console at `http://localhost:8123/play` (User: `default`, Password: `password123`).
 
 ---
 
-## 🔍 Verification & Observability
+## 🔍 Database Verification
 
-### 1. View Topics via Kafka UI
-Open your browser and navigate to:
-```
-http://localhost:8080
-```
-Here you can browse the `raw_crypto_trades` topic, audit broker health, track offset logs, and monitor partition details dynamically.
+Verify data flowing into ClickHouse with the following commands:
 
-### 2. Audit Ingested Data in ClickHouse
-Verify that ClickHouse is successfully consuming, unpacking, and writing data to your persistent table:
 ```bash
-docker compose exec clickhouse clickhouse-client --query "SELECT * FROM crypto_trades_raw LIMIT 10"
-```
+# Query the raw ingested trades (last 10 rows)
+docker compose exec clickhouse clickhouse-client -u default --password password123 --query \
+"SELECT * FROM crypto_trades_raw LIMIT 10"
 
-To see real-time database ingestion stats (such as trade counts per asset):
-```bash
-docker compose exec clickhouse clickhouse-client --query "SELECT symbol, count(), round(avg(price), 2) AS avg_price FROM crypto_trades_raw GROUP BY symbol"
-```
+# View real-time aggregation metrics
+docker compose exec clickhouse clickhouse-client -u default --password password123 --query \
+"SELECT symbol, count(), round(avg(price), 2) AS avg_price FROM crypto_trades_raw GROUP BY symbol"
 
-### 3. ClickHouse Play Web Console
-For an interactive database console, ClickHouse exposes a visual web-based playground interface. Open your browser and navigate to:
-```
-http://localhost:8123/play
-```
-Use the following credentials to authenticate:
-- **User**: `default`
-- **Password**: `password123`
-
-You can write and run SQL queries directly inside this interactive playground interface.
-
-### 4. Query dbt Analytical Models
-Once your dbt models have successfully compiled and materialized, you can query your summary metrics directly:
-
-**Query minute-level aggregated price trends:**
-```bash
-docker compose exec clickhouse clickhouse-client --query "SELECT * FROM default.minutes_pricing LIMIT 10"
-```
-
-**Query second-level high-frequency price actions:**
-```bash
-docker compose exec clickhouse clickhouse-client --query "SELECT * FROM default.seconds_pricing LIMIT 10"
+# Sub-second windowed analytics query
+docker compose exec clickhouse clickhouse-client -u default --password password123 --query \
+"SELECT symbol, toStartOfSecond(trade_time) AS sec, avg(price), sum(volume) FROM default.crypto_trades_raw GROUP BY symbol, sec ORDER BY sec DESC LIMIT 10"
 ```
 
 ---
 
-## 🔬 Architectural Deep Dive
+## 🤖 AI Data Analytics Agent (POC)
 
-### 1. The Coinbase Websocket Feed
-Instead of polling REST APIs (which degrades performance and hits rate limits), we open a persistent, bi-directional TCP pipe to the official Coinbase Public Exchange Feed (`wss://ws-feed.exchange.coinbase.com`). We subscribe to `ticker` updates for key assets (e.g., `BTC-USD`, `ETH-USD`, `SOL-USD`).
+An interactive natural-language-to-SQL command-line agent leveraging `gemini-3.5-flash` to query your streaming database on the fly.
 
-### 2. The Python Ingestion Producer (Thread-Buffered & Robust)
-An optimized, thread-buffered Python class. Upon establishing the socket connection, it handles the Coinbase subscription handshake and processes JSON frames on the fly. 
+### Running the Agent
 
-To guarantee production-grade stability:
-* **Thread-Safe Queue Buffering**: Raw trade payloads are immediately pushed to an in-memory `queue.Queue` by the WebSocket thread, while a background worker daemon pulls and writes them to Kafka. This completely isolates the WebSocket connection from Kafka network backpressure, avoiding dropped frames.
-* **Network Compression**: Incorporates **LZ4 compression** on the Kafka producer, reducing payload size by up to 70%.
-* **Exponential Startup Backoff**: Incorporates a 10-attempt progressive retry mechanism to robustly sync container startup order.
-* **Logging & Best Practices**: Features fully structured Python `logging` with precise timestamps and object-oriented encapsulation.
+1. **Install dependencies**:
+   ```bash
+   pip install -r agent_poc/requirements.txt
+   ```
 
-### 3. The Message Broker: Apache Kafka (KRaft Mode)
-Traditional Kafka architectures require Zookeeper, introducing significant configuration and hardware overhead. We utilize **KRaft Mode** (Kafka Raft metadata mode) which handles consensus directly inside Kafka itself. This yields sub-second controller election times, a streamlined deployment structure, and a minimal footprint.
+2. **Configure your API Key**:
+   Create a `.env` file in the project root:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   ```
 
-### 4. The Analytics Database: ClickHouse (Partitioned & Explicit)
-To enable low-cost, open-source execution, we migrated the database tier from a heavy Snowflake/Kafka Connect stack to **ClickHouse**. 
+3. **Run the interactive query agent**:
+   ```bash
+   python agent_poc/agent.py
+   ```
 
-The ingestion workflow uses three optimized layers (defined in [clickhouse-init/init.sql](file:///Users/sysung98/Documents/Projects/crypto-streaming-pipeline/clickhouse-init/init.sql)):
-1. **The Kafka Engine Queue (`kafka_crypto_trades`)**: Actively subscribes to the Kafka Broker and consumes byte packets from the `raw_crypto_trades` topic in `JSONEachRow` format.
-2. **The Persistent Table (`crypto_trades_raw`)**: A highly optimized `MergeTree` table that serves as the permanent data vault. It aggregates incoming records on disk, organizes them by `(symbol, trade_time)`, and partitions them daily using `PARTITION BY toYYYYMMDD(trade_time)` to prune directories during historical queries.
-3. **The Materialized View Pump (`mv_crypto_trades_raw`)**: An active background daemon that binds the Kafka Engine Queue directly to the Persistent Table. It explicitly maps columns (`symbol`, `price`, `volume`, `timestamp`) to protect against columns misalignment and silent schema drifts.
-
-### 5. The Transformation Layer: dbt Core (Incremental Processing)
-Instead of executing full table refreshes (which completely drops and recreates tables, causing query downtime and massive ClickHouse write cycles), our analytical transformations process data **incrementally**.
-
-Using the `dbt-clickhouse` adapter, the models (`minutes_pricing` and `seconds_pricing`) dynamically inspect their target materializations to find the maximum existing timestamp and only read fresh trade ticks that have arrived since that execution:
-```sql
-{% if is_incremental() %}
-    WHERE trade_time > (SELECT max(analytical_minute) FROM {{ this }})
-{% endif %}
-```
-This reduces execution runtime to under **0.5 seconds**, massively reducing database memory and storage overhead in high-throughput production environments.
+The script automatically translates user questions into optimized ClickHouse SQL, executes the queries against your active local ClickHouse container, and displays the structured results.
 
 ---
 
-## 🛣️ Roadmap & Next Steps
+## 🔬 Architectural Highlights
 
-- [ ] **Real-Time Dashboards**: Build a lightweight dashboard (using Streamlit or Grafana) to visualize high-frequency live crypto price actions directly from ClickHouse.
+### 1. In-Memory Queue Buffer
+The Python producer isolates the network thread from the Kafka producer to prevent packet drops due to backpressure:
+- **WebSocket Thread**: Ingests high-frequency JSON frames and pushes to a thread-safe `queue.Queue`.
+- **Worker Daemon**: Dequeues records and writes them to Kafka with **LZ4 compression** (saving up to 70% payload size).
+- **Startup Sync**: A 10-attempt exponential backoff guarantees clean Kafka connectivity on cold boots.
+
+### 2. ZooKeeper-less Apache Kafka (KRaft)
+Consensus is managed internally using KRaft, yielding sub-second controller election times, a streamlined footprint, and zero extra container overhead.
+
+### 3. Three-Tier ClickHouse Ingestion Plan
+To eliminate heavy middleware, ClickHouse directly pulls from Kafka using three integrated layers:
+1. **Kafka Engine Table (`kafka_crypto_trades`)**: A virtual queue consumer subscribing to the broker. *Do not query directly; reading from it commits offsets and can cause permanent data loss.*
+2. **Materialized View (`mv_crypto_trades_raw`)**: An active, event-driven background trigger that automatically maps and pumps consumed records into physical storage.
+3. **Persistent Table (`crypto_trades_raw`)**: A highly optimized columnar `MergeTree` table serving as the source-of-truth. **All analytics and downstream applications query this table.**
+
+---
+
+## 🛣️ Roadmap
+- [ ] **Real-Time Streamlit Dashboard**: Integrate a frontend to visualize live analytics directly from ClickHouse.
+- [X] **AI Assistant**: Introduce a Text-to-SQL chatbot leveraging Gemini to query streaming tables using natural language.
