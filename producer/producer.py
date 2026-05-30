@@ -152,25 +152,30 @@ class CoinbaseKafkaPipeline:
         Callback triggered when the WebSocket connection is closed/severed.
         """
         logger.warning(
-            f"🔌 Connection severed (Code: {close_status_code}, Msg: {close_msg}). "
-            f"Re-establishing link in 5 seconds..."
+            f"🔌 Connection severed (Code: {close_status_code}, Msg: {close_msg})."
         )
-        time.sleep(5)
-        self.start_stream()
 
     def start_stream(self) -> None:
         """
-        Opens a persistent connection to the Coinbase public exchange feed.
+        Opens a persistent connection to the Coinbase public exchange feed with reconnection logic.
         """
         coinbase_ws_url = "wss://ws-feed.exchange.coinbase.com"
-        ws = WebSocketApp(
-            coinbase_ws_url,
-            on_open=self.on_open,
-            on_message=self.on_message,
-            on_error=self.on_error,
-            on_close=self.on_close
-        )
-        ws.run_forever()
+        while True:
+            try:
+                ws = WebSocketApp(
+                    coinbase_ws_url,
+                    on_open=self.on_open,
+                    on_message=self.on_message,
+                    on_error=self.on_error,
+                    on_close=self.on_close
+                )
+                logger.info("🔌 Starting persistent WebSocket connection run loop...")
+                ws.run_forever()
+            except Exception as e:
+                logger.error(f"⚠️ WebSocket run loop encountered an exception: {e}")
+            
+            logger.info("🔄 Re-establishing link in 5 seconds...")
+            time.sleep(5)
 
 def main() -> None:
     logger.info("🚀 Starting Coinbase Real-Time Exchange Producer Pipeline...")

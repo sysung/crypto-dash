@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS kafka_crypto_trades (
 SETTINGS kafka_broker_list = 'kafka:29092',
          kafka_topic_list = 'raw_crypto_trades',
          kafka_group_name = 'clickhouse-consumer-group',
-         kafka_format = 'JSONEachRow';
+         kafka_format = 'JSONEachRow',
+         kafka_skip_broken_messages = 100;
 
 -- 3. Create the automated Pump
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_crypto_trades_raw TO crypto_trades_raw AS
