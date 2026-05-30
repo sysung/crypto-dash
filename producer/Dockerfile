@@ -8,8 +8,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the actual python streaming script
-COPY producer.py .
+# Copy the actual python streaming scripts
+COPY *.py .
 
 # Tell the container what command to run when it boots up
 CMD ["python", "producer.py"]

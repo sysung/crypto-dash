@@ -61,8 +61,8 @@ services:
       CLICKHOUSE_USER: "default"
       CLICKHOUSE_PASSWORD: "password123"
     volumes:
-      # Map our local init script to the container's boot folder
-      - ./clickhouse-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Map our local SQL schemas to the container's boot folder
+      - ./clickhouse:/docker-entrypoint-initdb.d
       - clickhouse_data:/var/lib/clickhouse
     depends_on:
       - kafka
