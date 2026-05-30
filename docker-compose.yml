@@ -63,6 +63,7 @@ services:
     volumes:
       # Map our local init script to the container's boot folder
       - ./clickhouse-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - clickhouse_data:/var/lib/clickhouse
     depends_on:
       - kafka
     networks:
@@ -71,3 +72,6 @@ services:
 networks:
   kafka-net:
     driver: bridge
+
+volumes:
+  clickhouse_data:
