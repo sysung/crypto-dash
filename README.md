@@ -102,6 +102,32 @@ docker compose exec clickhouse clickhouse-client -u default --password password1
 
 ---
 
+## 🤖 AI Data Analytics Agent (POC)
+
+An interactive natural-language-to-SQL command-line agent leveraging `gemini-3.5-flash` to query your streaming database on the fly.
+
+### Running the Agent
+
+1. **Install dependencies**:
+   ```bash
+   pip install -r agent_poc/requirements.txt
+   ```
+
+2. **Configure your API Key**:
+   Create a `.env` file in the project root:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   ```
+
+3. **Run the interactive query agent**:
+   ```bash
+   python agent_poc/agent.py
+   ```
+
+The script automatically translates user questions into optimized ClickHouse SQL, executes the queries against your active local ClickHouse container, and displays the structured results.
+
+---
+
 ## 🔬 Architectural Highlights
 
 ### 1. In-Memory Queue Buffer
