@@ -57,6 +57,7 @@ graph TD
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
 - Python 3.11+ (optional, for local development)
 - `curl` (for testing)
+- **Gemini API Key** (required for the AI Agent; free from [Google AI Studio](https://aistudio.google.com/))
 
 ### 1. Boot the Stack
 Spin up the containerized pipeline from the root directory:
@@ -105,6 +106,9 @@ docker compose exec clickhouse clickhouse-client -u default --password password1
 ## 🤖 AI Data Analytics Agent (POC)
 
 An interactive natural-language-to-SQL command-line agent leveraging `gemini-3.5-flash` to query your streaming database on the fly.
+
+> [!TIP]
+> This agent can be run **completely free of charge** under Google AI Studio's free tier using the `gemini-3.5-flash` model.
 
 ### Running the Agent
 
