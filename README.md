@@ -172,6 +172,18 @@ An interactive natural-language-to-SQL command-line agent leveraging `gemini-3.5
 
 The script automatically translates user questions into optimized ClickHouse SQL, executes the queries against your active local ClickHouse container, and displays the structured results.
 
+### 💡 Sample Prompts to Try
+
+The agent is fully equipped to understand both the high-frequency trades ticker and the L2 order book depth schemas. Try asking these sample questions in natural language:
+
+| Category | Natural Language Prompt | Under the Hood |
+| :--- | :--- | :--- |
+| **Trades Ticker** | `"What was the highest price of BTC-USD recorded in the trades table so far?"` | Maximum price aggregate on `crypto_trades_raw` |
+| **Trades Volumetrics** | `"How many total trade updates have we seen across all coins combined?"` | Total `count()` count on `crypto_trades_raw` |
+| **L2 Depth Averages** | `"What is the average bid price vs average offer price of ETH-USD in the L2 table?"` | Filter and group-by aggregate on `crypto_l2_raw` |
+| **Spread Analysis** | `"Show me the latest best bid, best ask, and spread for SOL-USD computed from the L2 updates."` | Complex spread math filtering by side (`bid`/`offer`) |
+| **Metadata Queries** | `"What are the unique symbols currently in the database?"` | `DISTINCT` symbol retrieval |
+
 ---
 
 ## 🔬 Architectural Highlights
