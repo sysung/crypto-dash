@@ -152,6 +152,10 @@ An interactive natural-language-to-SQL command-line agent leveraging `gemini-3.5
 > [!TIP]
 > This agent can be run **completely free of charge** under Google AI Studio's free tier using the `gemini-3.5-flash` model.
 
+> [!IMPORTANT]
+> **Gemini Free Tier Rate Limits (5 RPM)**: The Google AI Studio free tier enforces a strict limit of **5 requests per minute (RPM)**. 
+> Because the sequential test query suite executes 5+ queries in quick succession, you may encounter a `ResourceExhausted (HTTP 429)` exception on the last test case. Simply wait 60 seconds and run the query again, or introduce a short delay (e.g., `time.sleep(12)`) in loop executions.
+
 ### Running the Agent
 
 1. **Install dependencies**:
@@ -209,3 +213,4 @@ To bypass heavy, resource-intensive middleware connectors, ClickHouse directly c
 ## 🛣️ Roadmap
 - [ ] **Real-Time Streamlit Dashboard**: Integrate a frontend to visualize live analytics directly from ClickHouse.
 - [X] **AI Assistant**: Introduce a Text-to-SQL chatbot leveraging Gemini to query streaming tables using natural language.
+- [ ] **Resilient API Rate-Limit Handling**: Integrate automatic retry-backoff algorithms (e.g., tenacity or standard loop delay guards) into the AI CLI agent to gracefully handle the 5 RPM free tier quota.
