@@ -1,9 +1,9 @@
 -- ============================================================================
--- 1. TRADES TICKER INGESTION PIPELINE (raw_crypto_trades)
+-- 1. TICKS TICKER INGESTION PIPELINE (raw_crypto_trades)
 -- ============================================================================
 
--- Permanent columnar analytics vault for Trades Ticker
-CREATE TABLE IF NOT EXISTS crypto_trades_raw (
+-- Permanent columnar analytics vault for Ticks Ticker
+CREATE TABLE IF NOT EXISTS crypto_ticks_raw (
     symbol String,
     price Float64,
     volume_24h Float64,
@@ -24,7 +24,7 @@ PARTITION BY toYYYYMMDD(server_time)
 ORDER BY (symbol, server_time);
 
 -- Virtual queue consumer connecting to raw_crypto_trades
-CREATE TABLE IF NOT EXISTS kafka_crypto_trades (
+CREATE TABLE IF NOT EXISTS kafka_crypto_ticks (
     symbol String,
     price Float64,
     volume_24h Float64,
@@ -47,7 +47,7 @@ SETTINGS kafka_broker_list = 'kafka:29092',
          kafka_skip_broken_messages = 100;
 
 -- Materialized View Pump
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_crypto_trades_raw TO crypto_trades_raw AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_crypto_ticks_raw TO crypto_ticks_raw AS
 SELECT 
     symbol,
     price,
@@ -63,4 +63,4 @@ SELECT
     best_ask_quantity,
     sequence_num,
     timestamp
-FROM kafka_crypto_trades;
+FROM kafka_crypto_ticks;
