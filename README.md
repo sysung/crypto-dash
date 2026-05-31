@@ -71,7 +71,6 @@ graph TD
 ### Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
 - Python 3.11+ (optional, for local development)
-- `curl` (for testing)
 - **Gemini API Key** (required for the AI Agent; free from [Google AI Studio](https://aistudio.google.com/))
 
 ### 1. Boot the Stack
