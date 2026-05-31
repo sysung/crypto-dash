@@ -111,17 +111,17 @@ Verify data flowing into ClickHouse using the **ClickHouse Playground**:
    - **Password:** `password123`
 3. Copy and run any of the following queries in the editor:
 
-### 1. Ingested Trades (Last 10 Rows)
+### 1. Ingested Ticks (Last 10 Rows)
 ```sql
 SELECT symbol, price, volume_24h, best_bid, best_ask, server_time 
-FROM crypto_trades_raw 
+FROM crypto_ticks_raw 
 LIMIT 10;
 ```
 
-### 2. Real-Time Trades Aggregation Metrics
+### 2. Real-Time Ticks Aggregation Metrics
 ```sql
 SELECT symbol, count(), round(avg(price), 2) AS avg_price 
-FROM crypto_trades_raw 
+FROM crypto_ticks_raw 
 GROUP BY symbol;
 ```
 
@@ -163,16 +163,38 @@ An interactive natural-language-to-SQL command-line agent leveraging `gemini-3.5
    pip install -r agent_poc/requirements.txt
    ```
 
-2. **Configure your API Key**:
-   Create a `.env` file in the project root:
+2. **Configure your API Keys**:
+   Create a `.env` file in the project root and add your Gemini API Key and/or Hugging Face Access Token:
    ```env
    GEMINI_API_KEY=your_gemini_api_key_here
+   HF_TOKEN=your_huggingface_access_token_here
    ```
 
-3. **Run the interactive query agent**:
-   ```bash
-   python agent_poc/agent.py
-   ```
+3. **Run the 2-Stage Query Agent**:
+   The agent supports multiple providers and execution modes. You can launch it in an interactive session, query a single question, or execute the test suite:
+
+   * **Interactive REPL Mode (Recommended)**:
+     Launches a premium, conversational shell session where you can ask successive natural language questions:
+     ```bash
+     python agent_poc/agent.py --provider hf
+     ```
+
+   * **Single Question Query**:
+     Run a single query directly from your terminal using the `-q` / `--question` flag:
+     ```bash
+     python agent_poc/agent.py --provider hf -q "Show me the current drawdown of BTC-USD"
+     ```
+
+   * **Automated Evaluation Suite**:
+     Execute the pre-defined verification query suite using the `--test` flag:
+     ```bash
+     python agent_poc/agent.py --provider hf --test
+     ```
+
+   * **Model Provider Options (`--provider`)**:
+     * `hf`: Uses serverless `google/gemma-4-26B-A4B-it` hosted remotely, routed through the unified, high-reliability proxy endpoint `router.huggingface.co` (default, requires `HF_TOKEN`). Bypasses local DNS resolution issues and does not download files locally.
+     * `gemini`: Uses Google Gemini 3.5 Flash (requires `GEMINI_API_KEY`).
+     * `local`: Runs the public, non-gated `Qwen/Qwen2.5-1.5B-Instruct` completely locally using your local GPU/CPU hardware acceleration (Apple Silicon MPS, Nvidia CUDA, or CPU) via the `transformers` library (requires `torch`, `transformers`, `accelerate`). Automatically sets Hugging Face into **offline mode** after the initial weights are downloaded, guaranteeing seamless network-isolated runs.
 
 The script automatically translates user questions into optimized ClickHouse SQL, executes the queries against your active local ClickHouse container, and displays the structured results.
 
@@ -182,8 +204,8 @@ The agent is fully equipped to understand both the high-frequency trades ticker 
 
 | Category | Natural Language Prompt | Under the Hood |
 | :--- | :--- | :--- |
-| **Trades Ticker** | `"What was the highest price of BTC-USD recorded in the trades table so far?"` | Maximum price aggregate on `crypto_trades_raw` |
-| **Trades Volumetrics** | `"How many total trade updates have we seen across all coins combined?"` | Total `count()` count on `crypto_trades_raw` |
+| **Trades Ticker** | `"What was the highest price of BTC-USD recorded in the trades table so far?"` | Maximum price aggregate on `crypto_ticks_raw` |
+| **Trades Volumetrics** | `"How many total trade updates have we seen across all coins combined?"` | Total `count()` count on `crypto_ticks_raw` |
 | **L2 Depth Averages** | `"What is the average bid price vs average offer price of ETH-USD in the L2 table?"` | Filter and group-by aggregate on `crypto_l2_raw` |
 | **Spread Analysis** | `"Show me the latest best bid, best ask, and spread for SOL-USD computed from the L2 updates."` | Complex spread math filtering by side (`bid`/`offer`) |
 | **Metadata Queries** | `"What are the unique symbols currently in the database?"` | `DISTINCT` symbol retrieval |
@@ -203,10 +225,10 @@ Consensus is managed internally using KRaft, yielding sub-second controller elec
 
 ### 3. Segregated Three-Tier Ingestion Pipelines
 To bypass heavy, resource-intensive middleware connectors, ClickHouse directly consumes from Kafka using segregated, modular pipelines:
-* **DDL Organization (`clickhouse/` directory)**: Segregates database definitions into independent, clean schemas (`01_trades_schema.sql` and `02_l2_schema.sql`), auto-executed in order by the ClickHouse init wrapper upon boot.
-* **Twin Virtual Queues (`kafka_crypto_trades` & `kafka_crypto_l2`)**: Active database Kafka-engine consumers subscribing to separate streams (`raw_crypto_trades` and `raw_crypto_l2`).
-* **Twin Materialized Views (`mv_crypto_trades_raw` & `mv_crypto_l2_raw`)**: Background, event-driven pipes parsing ISO-timestamp payloads into high-precision `DateTime64` formats and pushing records directly to disk.
-* **Twin Columns Stores (`crypto_trades_raw` & `crypto_l2_raw`)**: High-performance MergeTree tables sorted by trading indexes (`ORDER BY`) to ensure sub-millisecond query execution.
+* **DDL Organization (`clickhouse/` directory)**: Segregates database definitions into independent, clean schemas (`01_ticks_schema.sql` and `02_l2_schema.sql`), auto-executed in order by the ClickHouse init wrapper upon boot.
+* **Twin Virtual Queues (`kafka_crypto_ticks` & `kafka_crypto_l2`)**: Active database Kafka-engine consumers subscribing to separate streams (`raw_crypto_trades` and `raw_crypto_l2`).
+* **Twin Materialized Views (`mv_crypto_ticks_raw` & `mv_crypto_l2_raw`)**: Background, event-driven pipes parsing ISO-timestamp payloads into high-precision `DateTime64` formats and pushing records directly to disk.
+* **Twin Columns Stores (`crypto_ticks_raw` & `crypto_l2_raw`)**: High-performance MergeTree tables sorted by trading indexes (`ORDER BY`) to ensure sub-millisecond query execution.
 
 ---
 
