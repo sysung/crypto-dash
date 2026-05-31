@@ -10,6 +10,7 @@ A production-grade, real-time data streaming pipeline. This architecture ingests
 graph TD
     classDef tech fill:#2d3748,stroke:#4a5568,stroke-width:2px,color:#fff;
     classDef external fill:#1a202c,stroke:#2d3748,color:#a0aec0;
+    classDef agent fill:#1a365d,stroke:#2b6cb0,stroke-width:2px,color:#fff;
 
     Coinbase["🔌 Coinbase Advanced Trade WebSocket"]:::external
     
@@ -21,6 +22,14 @@ graph TD
         Kafka["🚀 Apache Kafka (KRaft)"]:::tech
         KafkaUI["📊 Kafka UI"]:::tech
         ClickHouse["⚡ ClickHouse Server"]:::tech
+    end
+
+    subgraph Agent ["🤖 3-Stage Conversational Agentic Planner & SQL Router"]
+        UserPrompt([User Prompt]) --> Stage0[Stage 0: Intent Classifier & CoT Planner]:::agent
+        Stage0 -->|conversational_refusal| Refusal[Polite Scope Refusal]:::agent
+        Stage0 -->|strict_quantitative / vague_analytical| Stage1[Stage 1: SQL Router & Safety Guard]:::agent
+        Stage1 -->|Valid SELECT| ClickHouse
+        ClickHouse -->|Raw Results| Stage2[Stage 2: Insights Synthesizer & Financial Disclaimer]:::agent
     end
 
     Coinbase -->|ticker channel| Trades
@@ -147,16 +156,67 @@ GROUP BY symbol;
 
 ## 🤖 AI Data Analytics Agent (POC)
 
-An interactive natural-language-to-SQL command-line agent leveraging `gemini-3.5-flash` to query your streaming database on the fly.
+An interactive, state-of-the-art **3-Stage Conversational Agentic Planner & Intent Router** querying your real-time streaming database on the fly using natural language.
 
-> [!TIP]
-> This agent can be run **completely free of charge** under Google AI Studio's free tier using the `gemini-3.5-flash` model.
+---
 
-> [!IMPORTANT]
-> **Gemini Free Tier Rate Limits (5 RPM)**: The Google AI Studio free tier enforces a strict limit of **5 requests per minute (RPM)**. 
-> Because the sequential test query suite executes 5+ queries in quick succession, you may encounter a `ResourceExhausted (HTTP 429)` exception on the last test case. Simply wait 60 seconds and run the query again, or introduce a short delay (e.g., `time.sleep(12)`) in loop executions.
+### 🔬 3-Stage Pipeline Architecture
 
-### Running the Agent
+Instead of a brittle, single-stage text-to-SQL script, the agent executes a structured **3-stage cognitive pipeline** designed in native Python for maximum speed and control:
+
+```
+                  ┌──────────────────────────────┐
+                  │      User Question / Prompt  │
+                  └──────────────┬───────────────┘
+                                 │
+                   [Stage 0: CoT Intent & Planner]
+                                 │
+         ┌───────────────────────┼───────────────────────┐
+         ▼                       ▼                       ▼
+ ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+ │conversational│        │    strict    │        │    vague     │
+ │   refusal    │        │ quantitative │        │  analytical  │
+ └──────┬───────┘        └──────┬───────┘        └──────┬───────┘
+        │                       │                       │
+ [Scope Refusal]                │            [Empirical Plan Formulated]
+        │                       └───────────┬───────────┘
+        ▼                                   │
+ ┌──────────────┐                 [Stage 1: Safety Guard]
+ │Bypasses DB,  │                           │
+ │Explanatory   │                    [Execute Query]
+ │   Refusal    │                           │
+ └──────────────┘                           ▼
+                                  ┌───────────────────┐
+                                  │   ClickHouse DB   │
+                                  └─────────┬─────────┘
+                                            │
+                                            ▼
+                                  [Stage 2: Insights Synthesizer]
+                                            │
+                                            ▼
+                               ┌───────────────────────────┐
+                               │Grounded Markdown Dashboard│
+                               │(with Financial Disclaimer)│
+                               └───────────────────────────┘
+```
+
+#### 1. Stage 0: Intent Classifier & Planner (CoT)
+Evaluates user prompts utilizing **Chain-of-Thought (CoT)** reasoning. Before generating any database code, the model classifies user intent into one of three categories:
+*   `conversational_refusal`: The query is unrelated to cryptocurrency or completely out of scope of our database schema.
+*   `strict_quantitative`: The query is a direct request for specific database values or aggregates.
+*   `vague_analytical`: The query is speculative, qualitative, or causal (e.g. *"Which coin will make me a millionaire the fastest?"*, *"Why did Bitcoin price drop?"*). Evolving the speculative query into a structured, empirical search plan, it plans SQL queries to fetch indicators of momentum, volatility, and volume surges.
+
+#### 2. Stage 1: Safety Guard & Database Execution
+*   If `conversational_refusal`, the agent bypasses the database entirely, executing a custom system fallback that explains our exact database coverage boundaries.
+*   If `strict_quantitative` or `vague_analytical`, the generated SQL is passed to a strict, comment-stripping read-only safety validator `is_query_safe(sql)`. Forbidden write-keywords (e.g., `DROP`, `DELETE`, `TRUNCATE`) are blocked immediately. Verified queries are executed against ClickHouse with `MAX_ROWS` limits.
+
+#### 3. Stage 2: Insights Synthesizer & Disclaimers
+Takes the original question, Stage 0 planner thoughts, executed query, and returned database rows, synthesizing a premium, markdown-formatted dashboard response.
+*   **Speculative Prompt Handlers**: For `vague_analytical` prompts, the synthesizer automatically prepends a prominent, **bold italicized financial disclaimer** explaining that it does not offer financial advice, and presents empirical indicators of risk and momentum to help the user evaluate trends objectively.
+
+---
+
+### 🚀 Running the Agent
 
 1. **Install dependencies**:
    ```bash
@@ -170,45 +230,41 @@ An interactive natural-language-to-SQL command-line agent leveraging `gemini-3.5
    HF_TOKEN=your_huggingface_access_token_here
    ```
 
-3. **Run the 2-Stage Query Agent**:
-   The agent supports multiple providers and execution modes. You can launch it in an interactive session, query a single question, or execute the test suite:
+3. **Execution Modes**:
+   *   **Interactive REPL Mode (Recommended)**:
+       Launches a premium, conversational shell session where you can ask successive questions:
+       ```bash
+       python agent_poc/agent.py --provider hf
+       ```
+   *   **Single Question Query**:
+       Run a single query directly from your terminal using the `-q` / `--question` flag:
+       ```bash
+       python agent_poc/agent.py --provider hf -q "Show me the current drawdown of BTC-USD"
+       ```
+   *   **Automated Evaluation Suite**:
+       Execute our pre-defined verification query suite across all intent categories:
+       ```bash
+       python agent_poc/agent.py --provider hf --test
+       ```
 
-   * **Interactive REPL Mode (Recommended)**:
-     Launches a premium, conversational shell session where you can ask successive natural language questions:
-     ```bash
-     python agent_poc/agent.py --provider hf
-     ```
+4. **Model Provider Options (`--provider`)**:
+   *   `hf` (Default): Uses the remote serverless model `google/gemma-4-26B-A4B-it` routed through Hugging Face's high-reliability serverless completions endpoint `router.huggingface.co/v1/chat/completions`. Requires `HF_TOKEN`. Bypasses local DNS resolution failures and executes instantly.
+   *   `gemini`: Uses Google Gemini 3.5 Flash (requires `GEMINI_API_KEY`).
+   *   `local`: Runs the public, non-gated model `Qwen/Qwen2.5-1.5B-Instruct` completely locally on your hardware (Apple Silicon MPS, Nvidia CUDA, or CPU) via `transformers` (requires `torch`, `transformers`, `accelerate`). Automatically activates Hugging Face **offline mode** after weight initialization, guaranteeing secure, network-isolated execution.
 
-   * **Single Question Query**:
-     Run a single query directly from your terminal using the `-q` / `--question` flag:
-     ```bash
-     python agent_poc/agent.py --provider hf -q "Show me the current drawdown of BTC-USD"
-     ```
-
-   * **Automated Evaluation Suite**:
-     Execute the pre-defined verification query suite using the `--test` flag:
-     ```bash
-     python agent_poc/agent.py --provider hf --test
-     ```
-
-   * **Model Provider Options (`--provider`)**:
-     * `hf`: Uses serverless `google/gemma-4-26B-A4B-it` hosted remotely, routed through the unified, high-reliability proxy endpoint `router.huggingface.co` (default, requires `HF_TOKEN`). Bypasses local DNS resolution issues and does not download files locally.
-     * `gemini`: Uses Google Gemini 3.5 Flash (requires `GEMINI_API_KEY`).
-     * `local`: Runs the public, non-gated `Qwen/Qwen2.5-1.5B-Instruct` completely locally using your local GPU/CPU hardware acceleration (Apple Silicon MPS, Nvidia CUDA, or CPU) via the `transformers` library (requires `torch`, `transformers`, `accelerate`). Automatically sets Hugging Face into **offline mode** after the initial weights are downloaded, guaranteeing seamless network-isolated runs.
-
-The script automatically translates user questions into optimized ClickHouse SQL, executes the queries against your active local ClickHouse container, and displays the structured results.
+---
 
 ### 💡 Sample Prompts to Try
 
-The agent is fully equipped to understand both the high-frequency trades ticker and the L2 order book depth schemas. Try asking these sample questions in natural language:
+The agent leverages high-frequency tick records, L2 depth spreads, static token metadata, and stateful pre-aggregated risk views to answer a diverse set of queries:
 
-| Category | Natural Language Prompt | Under the Hood |
+| Category | Natural Language Prompt | Under the Hood (Agent Pipeline Action) |
 | :--- | :--- | :--- |
-| **Trades Ticker** | `"What was the highest price of BTC-USD recorded in the trades table so far?"` | Maximum price aggregate on `crypto_ticks_raw` |
-| **Trades Volumetrics** | `"How many total trade updates have we seen across all coins combined?"` | Total `count()` count on `crypto_ticks_raw` |
-| **L2 Depth Averages** | `"What is the average bid price vs average offer price of ETH-USD in the L2 table?"` | Filter and group-by aggregate on `crypto_l2_raw` |
-| **Spread Analysis** | `"Show me the latest best bid, best ask, and spread for SOL-USD computed from the L2 updates."` | Complex spread math filtering by side (`bid`/`offer`) |
-| **Metadata Queries** | `"What are the unique symbols currently in the database?"` | `DISTINCT` symbol retrieval |
+| **Out-of-Scope Refusal** | `"What is the capital city of France?"` | Classified as `conversational_refusal`. Bypasses database, prints polite dataset boundary explanation. |
+| **Speculative Query** | `"Which coin will make me a millionaire the fastest? Explain your reasoning"` | Classified as `vague_analytical`. Generates query on `view_volume_spikes` and `view_risk_and_volatility`, displays a prominent financial disclaimer, and lists momentum leaders. |
+| **Causal Analysis** | `"Explain why BTC-USD price drops might justify its status as a relative safe haven compared to altcoins."` | Classified as `vague_analytical`. Joins static `token_metadata` (Proof of Work, Digital Gold) with `view_risk_and_volatility` log returns to ground a causal analysis. |
+| **Market Volumetrics** | `"Did the volume for ETH-USD spike over the last hour, or is the market quiet?"` | Classified as `strict_quantitative`. Queries `view_volume_spikes` for recent rolling ratios. |
+| **Spread Analysis** | `"Show me the latest best bid, best ask, and spread for SOL-USD computed from the L2 updates."` | Classified as `strict_quantitative`. Filters `crypto_l2_raw` by side and symbol to calculate market spreads. |
 
 ---
 

@@ -41,10 +41,10 @@ def get_clickhouse_client() -> clickhouse_connect.driver.Client:
         sys.exit(1)
 
 
-# 2. Define Stage 1: The SQL Router Prompt (PEP 8 Uppercase Constant)
-ROUTER_INSTRUCTION = """
-You are a specialized SQL Router Agent for a real-time cryptocurrency pipeline.
-Your only job is to convert the user's natural language question into a valid, read-only ClickHouse SQL query targeting our tables and views.
+# 2. Define Stage 0 & 1: The Conversational Agentic Planner & SQL Router Prompt
+PLANNER_INSTRUCTION = """
+You are the master Orchestrator, Intent Classifier, and SQL Planner for a real-time cryptocurrency data agent.
+Your job is to analyze the user's natural language question, perform Chain-of-Thought (CoT) reasoning, classify the user's intent, and formulate a database search plan.
 
 The database has the following tables and views:
 
@@ -61,17 +61,9 @@ Columns:
 - timestamp (String): ISO timestamp string
 - server_time (DateTime64(9)): Parsed server envelope time.
 
-2. 'default.crypto_l2_raw' stores flattened L2 order book depth updates.
+2. 'default.crypto_l2_raw' stores L2 order book depth updates.
 Columns:
-- symbol (String)
-- side (String): 'bid' or 'offer' (meaning ask)
-- price (Float64)
-- volume (Float64): Size/quantity at this price level
-- event_time (String)
-- sequence_num (Int64)
-- timestamp (String)
-- trade_time (DateTime64(6)): Parsed event trade time. Highly optimized for sorting and partition pruning.
-- server_time (DateTime64(9)): Parsed server envelope time.
+- symbol (String), side (String), price (Float64), volume (Float64), event_time (String), sequence_num (Int64), timestamp (String)
 
 3. 'default.crypto_ohlcv_1m', 'default.crypto_ohlcv_5m', 'default.crypto_ohlcv_24h' (OHLCV aggregated target tables)
 Columns:
@@ -81,61 +73,40 @@ Columns:
 
 4. 'default.view_volume_spikes' (View detecting 5-minute volume spikes relative to a rolling 30-day average baseline)
 Columns:
-- symbol (String)
-- window_start (DateTime)
-- volume (Float64)
-- rolling_30d_avg_volume (Float64)
-- volume_spike_ratio (Float64)
+- symbol (String), window_start (DateTime), volume (Float64), rolling_30d_avg_volume (Float64), volume_spike_ratio (Float64)
 
 5. 'default.view_risk_and_volatility' (View tracking hourly volatility, current drawdown, and rolling 30-day max drawdown)
 Columns:
-- symbol (String)
-- window_start (DateTime)
-- close (Float64)
-- rolling_30d_volatility_hourly (Float64)
-- current_drawdown (Float64)
-- rolling_30d_max_drawdown (Float64)
+- symbol (String), window_start (DateTime), close (Float64), rolling_30d_volatility_hourly (Float64), current_drawdown (Float64), rolling_30d_max_drawdown (Float64)
 
 6. 'default.view_altcoin_beta' (View calculating hourly altcoin beta relative to BTC-USD over rolling 24-hour windows)
 Columns:
-- symbol (String)
-- window_start (DateTime)
-- r_alt (Float64)
-- r_btc (Float64)
-- covariance_24h (Float64)
-- variance_btc_24h (Float64)
-- hourly_beta_24h (Float64)
+- symbol (String), window_start (DateTime), r_alt (Float64), r_btc (Float64), covariance_24h (Float64), variance_btc_24h (Float64), hourly_beta_24h (Float64)
 
 7. 'default.token_metadata' (Static table with structural coin facts)
 Columns:
 - symbol (String), name (String), utility (String), consensus_mechanism (String), security_checklist (String), launched_year (UInt16)
 
-Rules:
-1. Return ONLY the raw SQL query. Do not include markdown formatting like ```sql or ```.
-2. Do not include any conversational text, explanations, or pleasantries.
-3. Always search or filter for specific symbols exactly as provided (e.g., 'BTC-USD').
-4. For volume spike checks, query 'default.view_volume_spikes'.
-5. For volatility, drawdowns, and maximum drawdowns, query 'default.view_risk_and_volatility'.
-6. For asset beta or correlation relative to Bitcoin, query 'default.view_altcoin_beta'.
-7. For structural token facts (utility, consensus, audits), query 'default.token_metadata'.
-8. For standard price charts, candle bars, or Open/High/Low/Close metrics, query the appropriate OHLCV table ('default.crypto_ohlcv_1m', 'default.crypto_ohlcv_5m', or 'default.crypto_ohlcv_24h').
-9. For hybrid queries combining structural token facts (utility, consensus) and live risk/drawdown metrics, perform a JOIN on the `symbol` column. Make sure that metrics columns like `close`, `window_start`, and `rolling_30d_max_drawdown` are selected from the risk view subquery/alias, and NOT from the static `token_metadata` table.
-Example hybrid query format:
-SELECT 
-    m.symbol,
-    m.utility,
-    m.consensus_mechanism,
-    r.close,
-    r.rolling_30d_max_drawdown
-FROM default.token_metadata AS m
-JOIN (
-    SELECT *
-    FROM default.view_risk_and_volatility
-    WHERE symbol = 'BTC-USD'
-    ORDER BY window_start DESC
-    LIMIT 1
-) AS r ON m.symbol = r.symbol
-WHERE m.symbol = 'BTC-USD';
+Available streaming tokens are: 'BTC-USD', 'ETH-USD', 'USDT-USD', 'BNB-USD', 'XRP-USD', 'USDC-USD', 'SOL-USD', 'DOGE-USD'.
+
+Intent Classifications:
+1. 'conversational_refusal': The user's query is out of scope, completely unrelated to cryptocurrency, or completely unrelated to our specific ClickHouse streaming dataset.
+2. 'strict_quantitative': The user's query asks for direct, quantitative metrics (e.g. latest price, highest volume spike, volatility stats).
+3. 'vague_analytical': The user's query asks speculative, qualitative, or analytical questions (e.g., "Which coin will make me a millionaire the fastest?", "Which is the safest?", "Which coin is best to buy today?", "Explain why BTC price is dropping").
+
+Rules for Intent & Plan Generation:
+1. For 'conversational_refusal', do NOT generate a SQL query. Set 'Planned SQL' to 'NONE'.
+2. For 'vague_analytical', translate the qualitative/speculative intent into a safe, empirical database analysis plan. Generate a SQL query that retrieves relevant quantitative metrics (volatility, momentum, drawdowns) from the database that can ground your speculative/analytical answer.
+3. For 'strict_quantitative', generate the exact, read-only SELECT/WITH SQL query to fetch the requested metrics.
+4. For hybrid queries combining structural token facts (utility, consensus) and live risk/drawdown metrics, perform a JOIN on the `symbol` column. Make sure that metrics columns like `close`, `window_start`, and `rolling_30d_max_drawdown` are selected from the risk view subquery/alias, and NOT from the static `token_metadata` table.
+5. All queries must start with SELECT or WITH.
+6. Always search or filter for specific symbols exactly as provided (e.g., 'BTC-USD').
+
+You MUST output your response in EXACTLY this format, with no markdown code blocks around the text, and no other text:
+
+Thought: <your Chain-of-Thought reasoning about the query and plan>
+Intent: <conversational_refusal | strict_quantitative | vague_analytical>
+Planned SQL: <valid SQL query, or NONE>
 """
 
 # 3. Define Stage 2: The Insights Responder Prompt (PEP 8 Uppercase Constant)
@@ -144,16 +115,20 @@ You are a specialized Cryptocurrency Insights Assistant.
 Your job is to synthesize raw data queries returned from a ClickHouse database into a clean, grounded, dashboard-friendly conversational response.
 
 You will receive:
-1. The user's original natural-language question.
-2. The exact SQL query that was executed.
-3. The raw rows/metrics returned from ClickHouse.
+1. The user's original question.
+2. The Planner's Chain-of-Thought reasoning.
+3. The exact SQL query that was executed.
+4. The raw database rows returned from ClickHouse.
 
 Guidelines:
 1. Synthesize the results into a concise, professional, and visually engaging response.
 2. Ground all numbers and statements strictly in the database results. Do not hallucinate or assume values.
-3. If no rows were returned, politely inform the user that no data is currently available in the database for their query.
+3. If the Planner classified the question as 'vague_analytical' (e.g. speculative questions like "millionaire fastest" or "best coin to buy"):
+   - Begin your response with a clear, friendly financial disclaimer explaining that you do not offer financial advice.
+   - Explain how you used empirical data (e.g. checking volatility, volume spikes, and token utility) to evaluate the question.
+   - Summarize the metrics and utility findings to help the user evaluate their options objectively.
 4. Format your output cleanly in Markdown, using bullet points, bolding, or lists where appropriate to make it highly readable.
-5. If the user asked a complex analytical question (like volatility or beta), briefly explain the financial context of the returned metric in one sentence.
+5. If the user asked a complex analytical question (like volatility, drawdown, or beta), briefly explain the financial context of the returned metric in one sentence.
 """
 
 
@@ -195,33 +170,65 @@ def is_query_safe(sql: str) -> Tuple[bool, str]:
 
 def run_agent(question: str, provider: BaseLLMProvider, client: clickhouse_connect.driver.Client) -> None:
     """
-    Orchestrates the 2-Stage translation and response synthesis pipeline.
-    Translates natural language questions to read-only ClickHouse SQL, executes it,
-    and feeds the results back to the LLM to compile natural language insights.
+    Orchestrates the 3-Stage Conversational Agentic Planner & Intent Router pipeline.
+    Classifies intent via Stage 0 CoT Planner, routes conversational refusals,
+    executes planned SQL, and synthesizes data-grounded insights.
     """
     print(f"\n🗣️ Question: {question}")
 
-    # --- STAGE 1: SQL ROUTING & TRANSLATION ---
+    # --- STAGE 0: INTENT CLASSIFICATION & PLANNING ---
     try:
-        raw_text = provider.generate(ROUTER_INSTRUCTION, question)
-        # Extract SQL from markdown blocks if present
-        match = re.search(r"```(?:sql)?\n?(.*?)\n?```", raw_text, re.IGNORECASE | re.DOTALL)
-        generated_sql = match.group(1).strip() if match else raw_text
-        print(f"🤖 Stage 1 Generated SQL: {generated_sql}")
+        raw_planner_text = provider.generate(PLANNER_INSTRUCTION, question)
+        
+        # Parse output using strict structural regexes
+        thought_match = re.search(r"Thought:\s*(.*?)(?=\bIntent:|$)", raw_planner_text, re.DOTALL | re.IGNORECASE)
+        intent_match = re.search(r"Intent:\s*(.*?)(?=\bPlanned SQL:|$)", raw_planner_text, re.DOTALL | re.IGNORECASE)
+        sql_match = re.search(r"Planned SQL:\s*(.*)", raw_planner_text, re.DOTALL | re.IGNORECASE)
+
+        thought = thought_match.group(1).strip() if thought_match else "No explicit thoughts recorded."
+        intent = intent_match.group(1).strip().lower() if intent_match else "strict_quantitative"
+        planned_sql = sql_match.group(1).strip() if sql_match else "NONE"
+
+        # Strip markdown SQL wraps if the LLM output it
+        sql_block_match = re.search(r"```(?:sql)?\n?(.*?)\n?```", planned_sql, re.IGNORECASE | re.DOTALL)
+        if sql_block_match:
+            planned_sql = sql_block_match.group(1).strip()
+
+        print(f"🧠 Stage 0 Thought:\n   {thought}")
+        print(f"🎯 Stage 0 Intent: {intent.upper()}")
+        if planned_sql != "NONE":
+            print(f"🤖 Stage 1 Generated SQL: {planned_sql}")
 
     except Exception as e:
-        print(f"❌ Stage 1 Router Failed to Translate: {e}", file=sys.stderr)
+        print(f"❌ Stage 0 Intent Planner Failed: {e}", file=sys.stderr)
+        return
+
+    # --- ROUTING LOGIC ---
+    if intent == "conversational_refusal":
+        # Create a friendly out-of-scope refusal detailing dataset boundaries
+        refusal_instruction = """
+You are a specialized Cryptocurrency Data Agent.
+The user has asked a question that is completely out of scope (unrelated to cryptocurrency, or completely unrelated to our ClickHouse streaming dataset).
+Politely refuse to answer, and clearly explain that you only have access to real-time Coinbase streaming metrics (OHLCV, order book depth, volatility, volume spikes, and altcoin beta) and structural token metadata facts. Do not answer general questions (e.g. tell a joke, write a poem, explain historical facts outside our token metadata).
+"""
+        try:
+            synthesized_answer = provider.generate(refusal_instruction, question)
+            print("\n✨ Response:")
+            print(synthesized_answer)
+            print("-" * 50)
+        except Exception as e:
+            print(f"❌ Refusal Synthesis Failed: {e}", file=sys.stderr)
         return
 
     # Verify query safety before running it
-    is_safe, error_msg = is_query_safe(generated_sql)
+    is_safe, error_msg = is_query_safe(planned_sql)
     if not is_safe:
         print(f"🛑 Security Guard Blocked Query: {error_msg}", file=sys.stderr)
         return
 
     # --- INTERMEDIATE: DATABASE EXECUTION ---
     try:
-        result = client.query(generated_sql)
+        result = client.query(planned_sql)
         raw_results = []
 
         # Hardened with maximum row count limit protection (Context Protection)
@@ -247,7 +254,8 @@ def run_agent(question: str, provider: BaseLLMProvider, client: clickhouse_conne
         # Prompt construction for Stage 2
         responder_prompt = f"""
 User Question: {question}
-SQL Executed: {generated_sql}
+Planner CoT Thought: {thought}
+SQL Executed: {planned_sql}
 Database Results:
 {results_str if results_str else 'No rows returned.'}
 """
@@ -262,7 +270,7 @@ Database Results:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="2-Stage Crypto Data Agent")
+    parser = argparse.ArgumentParser(description="Conversational Agentic Planner & Intent Router")
     parser.add_argument(
         "--provider",
         choices=["gemini", "hf", "local"],
@@ -288,7 +296,7 @@ if __name__ == "__main__":
         print(f"❌ Booting Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"🚀 Booting 2-Stage Data Agent (Provider: {parsed_args.provider.upper()})...")
+    print(f"🚀 Booting 3-Stage Conversational Agentic Planner (Provider: {parsed_args.provider.upper()})...")
 
     # Establish dynamic, lazy connection to ClickHouse database
     db_client = get_clickhouse_client()
@@ -317,7 +325,12 @@ if __name__ == "__main__":
             "If BTC-USD is experiencing a sudden price drop or drawdown, explain how its core utility as digital gold and consensus design might justify its status as a relative safe haven compared to altcoins.",
             "Analyze why an altcoin like SOL-USD might experience extreme volume spikes or volatility. Explain this behavior in relation to its underlying technology, utility, and security facts.",
             "DOGE-USD is historically known for meme-driven anomalous runs. Explain if we see any sudden decoupling (hourly beta < 0.5) from BTC today, and describe how its meme utility explains this volatile behavior.",
-            "Review the current maximum drawdowns across ETH-USD and BTC-USD. Explain why Ethereum's drawdown profile differs from Bitcoin's based on their different utility sectors (Smart Contracts vs. Digital Gold)."
+            "Review the current maximum drawdowns across ETH-USD and BTC-USD. Explain why Ethereum's drawdown profile differs from Bitcoin's based on their different utility sectors (Smart Contracts vs. Digital Gold).",
+
+            # --- Category 4: Speculative & Out-of-Scope Queries (CoT Planner & Refusals) ---
+            "Which coin will make me a millionaire the fastest? Explain your reasoning",
+            "Write a poem about Bitcoin's historical block size wars.",
+            "What is the capital city of France?"
         ]
         for q in test_questions:
             run_agent(q, provider_instance, db_client)
