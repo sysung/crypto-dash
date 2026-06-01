@@ -5,9 +5,9 @@ from base_producer import BaseCoinbaseProducer
 
 logger = logging.getLogger(__name__)
 
-class TradesProducer(BaseCoinbaseProducer):
+class TickerProducer(BaseCoinbaseProducer):
     """
-    Ingests real-time cryptocurrency trade ticks (the 'ticker' channel) from Coinbase Advanced Trade
+    Ingests real-time cryptocurrency ticker ticks (the 'ticker' channel) from Coinbase Advanced Trade
     and publishes them to a dedicated Kafka topic.
     """
     def __init__(self, broker: str, topic: str, products: List[str]):
@@ -64,10 +64,10 @@ class TradesProducer(BaseCoinbaseProducer):
                 try:
                     self.msg_queue.put_nowait(payload)
                     logger.info(
-                        f"📡 [Trades] Ingest -> {payload['symbol']} | Price: ${payload['price']:.2f} | "
+                        f"📡 [Ticker] Ingest -> {payload['symbol']} | Price: ${payload['price']:.2f} | "
                         f"24h Vol: {payload['volume_24h']:.2f} | Ask: {payload['best_ask']} (Queue: {self.msg_queue.qsize()})"
                     )
                 except queue.Full:
                     logger.error(
-                        f"🚨 [Trades] Queue full! Dropping ticker update for {payload['symbol']}."
+                        f"🚨 [Ticker] Queue full! Dropping ticker update for {payload['symbol']}."
                     )

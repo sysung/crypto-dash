@@ -76,7 +76,16 @@ class BaseCoinbaseProducer(ABC):
         while True:
             try:
                 payload = self.msg_queue.get()
-                self.producer.send(self.topic, value=payload)
+                symbol = payload.get("symbol")
+                key = symbol.encode("utf-8") if symbol else None
+                
+                # Map each symbol 1-to-1 to a partition index to avoid hashing collisions
+                partition = None
+                if symbol and symbol in self.products:
+                    # Map symbol to one of the 8 partitions deterministically based on list order
+                    partition = self.products.index(symbol) % 8
+                
+                self.producer.send(self.topic, key=key, partition=partition, value=payload)
                 self.msg_queue.task_done()
             except Exception as e:
                 logger.error(f"⚠️ [{self.__class__.__name__}] Error in Kafka sender worker: {e}")

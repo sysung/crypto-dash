@@ -16,7 +16,7 @@ graph TD
     
     subgraph Docker ["🐳 Docker Compose Stack"]
         subgraph MultiProducer ["🐍 Multi-Stream Producers (Parallel Threads)"]
-            Trades["Trades Ingest (TradesProducer)"]:::tech
+            Ticker["Ticker Ingest (TickerProducer)"]:::tech
             L2["L2 Depth Ingest (L2Producer)"]:::tech
         end
         Kafka["🚀 Apache Kafka (KRaft)"]:::tech
@@ -32,9 +32,9 @@ graph TD
         ClickHouse -->|Raw Results| Stage2[Stage 2: Insights Synthesizer & Financial Disclaimer]:::agent
     end
 
-    Coinbase -->|ticker channel| Trades
+    Coinbase -->|ticker channel| Ticker
     Coinbase -->|level2 channel| L2
-    Trades -->|raw_crypto_trades topic| Kafka
+    Ticker -->|raw_crypto_ticker topic| Kafka
     L2 -->|raw_crypto_l2 topic| Kafka
     Kafka -.->|Monitoring| KafkaUI
     Kafka -->|Native Ingestion| ClickHouse
@@ -44,9 +44,9 @@ graph TD
 
 ## ⚡ Core Features
 
-- **Modular Multi-Stream Ingestion**: Implements an elegant Object-Oriented Design (OOD) with a shared base class wrapper (`BaseCoinbaseProducer`) and decoupled, parallel execution threads for real-time Trades and L2 Order Book Depth.
+- **Modular Multi-Stream Ingestion**: Implements an elegant Object-Oriented Design (OOD) with a shared base class wrapper (`BaseCoinbaseProducer`) and decoupled, parallel execution threads for real-time Ticker and L2 Order Book Depth.
 - **High-Fidelity Schema Extraction**: Ingests the modern Coinbase Advanced Trade WebSocket API, capturing all 12+ pricing, spread limits, sequence numbers, and deep L2 bids/offers (flattened and streamed independently).
-- **Shock-Absorbing Broker Separation**: Routes trades and L2 depth to **separate Kafka topics** (`raw_crypto_trades` and `raw_crypto_l2`) to decouple analytical loads and optimize performance.
+- **Shock-Absorbing Broker Separation**: Routes ticker and L2 depth to **separate Kafka topics** (`raw_crypto_ticker` and `raw_crypto_l2`) to decouple analytical loads and optimize performance.
 - **Zero-Connector Ingestion**: ClickHouse pulls directly from Kafka using its **Native Kafka Engine** and a **Materialized View**, eliminating heavy middleware.
 - **Resilient loops**: Thread-safe buffering queues, high-performance LZ4 network payload compression, progressive startup connection backoffs, and robust loop-based non-recursive reconnection supervisors.
 - **Fully Containerized**: The entire data platform boots reliably with a single Docker Compose command.
@@ -89,9 +89,9 @@ Check the concurrent multi-stream logs:
 ```bash
 docker compose logs -f crypto-producer
 ```
-You should see parallel ingestion activities for both the Trades (`Trades`) and L2 Depth (`L2 Depth`) channels:
+You should see parallel ingestion activities for both the Ticker (`Ticker`) and L2 Depth (`L2 Depth`) channels:
 ```text
-crypto-producer  | 2026-05-30 14:40:11,532 [INFO] 📡 [Trades] Ingest -> BTC-USD | Price: $73863.55 | 24h Vol: 4150.65 | Ask: 73863.55 (Queue: 0)
+crypto-producer  | 2026-05-30 14:40:11,532 [INFO] 📡 [Ticker] Ingest -> BTC-USD | Price: $73863.55 | 24h Vol: 4150.65 | Ask: 73863.55 (Queue: 0)
 crypto-producer  | 2026-05-30 14:40:11,538 [INFO] 📊 [L2 Depth] Ingest -> BTC-USD | OFFER | Price: $73863.55 | Vol: 0.006734 | Type: update (Queue: 0)
 crypto-producer  | 2026-05-30 14:40:11,539 [INFO] 📊 [L2 Depth] Ingest -> BTC-USD | BID | Price: $73788.01 | Vol: 0.000000 | Type: update (Queue: 1)
 ```
@@ -281,7 +281,7 @@ Consensus is managed internally using KRaft, yielding sub-second controller elec
 ### 3. Segregated Three-Tier Ingestion Pipelines
 To bypass heavy, resource-intensive middleware connectors, ClickHouse directly consumes from Kafka using segregated, modular pipelines:
 * **DDL Organization (`clickhouse/` directory)**: Segregates database definitions into independent, clean schemas (`01_ticks_schema.sql` and `02_l2_schema.sql`), auto-executed in order by the ClickHouse init wrapper upon boot.
-* **Twin Virtual Queues (`kafka_crypto_ticks` & `kafka_crypto_l2`)**: Active database Kafka-engine consumers subscribing to separate streams (`raw_crypto_trades` and `raw_crypto_l2`).
+* **Twin Virtual Queues (`kafka_crypto_ticks` & `kafka_crypto_l2`)**: Active database Kafka-engine consumers subscribing to separate streams (`raw_crypto_ticker` and `raw_crypto_l2`).
 * **Twin Materialized Views (`mv_crypto_ticks_raw` & `mv_crypto_l2_raw`)**: Background, event-driven pipes parsing ISO-timestamp payloads into high-precision `DateTime64` formats and pushing records directly to disk.
 * **Twin Columns Stores (`crypto_ticks_raw` & `crypto_l2_raw`)**: High-performance MergeTree tables sorted by trading indexes (`ORDER BY`) to ensure sub-millisecond query execution.
 

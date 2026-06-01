@@ -1,5 +1,5 @@
 -- ============================================================================
--- 1. TICKS TICKER INGESTION PIPELINE (raw_crypto_trades)
+-- 1. TICKS TICKER INGESTION PIPELINE (raw_crypto_ticker)
 -- ============================================================================
 
 -- Permanent columnar analytics vault for Ticks Ticker
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS crypto_ticks_raw (
 PARTITION BY toYYYYMMDD(server_time)
 ORDER BY (symbol, server_time);
 
--- Virtual queue consumer connecting to raw_crypto_trades
+-- Virtual queue consumer connecting to raw_crypto_ticker
 CREATE TABLE IF NOT EXISTS kafka_crypto_ticks (
     symbol String,
     price Float64,
@@ -41,8 +41,8 @@ CREATE TABLE IF NOT EXISTS kafka_crypto_ticks (
     timestamp String
 ) ENGINE = Kafka
 SETTINGS kafka_broker_list = 'kafka:29092',
-         kafka_topic_list = 'raw_crypto_trades',
-         kafka_group_name = 'clickhouse-trades-consumer-group',
+         kafka_topic_list = 'raw_crypto_ticker',
+         kafka_group_name = 'clickhouse-ticker-consumer-group',
          kafka_format = 'JSONEachRow',
          kafka_skip_broken_messages = 100;
 

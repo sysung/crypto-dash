@@ -18,12 +18,12 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
-from trades_producer import TradesProducer
+from ticker_producer import TickerProducer
 from l2_producer import L2Producer
 
 # Constants and Configuration
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:29092")
-KAFKA_TOPIC_TRADES = "raw_crypto_trades"
+KAFKA_TOPIC_TICKER = "raw_crypto_ticker"
 KAFKA_TOPIC_L2 = "raw_crypto_l2"
 
 COINBASE_PRODUCTS: List[str] = [
@@ -31,15 +31,15 @@ COINBASE_PRODUCTS: List[str] = [
     "XRP-USD", "USDC-USD", "SOL-USD", "DOGE-USD"
 ]
 
-def run_trades_producer():
-    """Runs the trade execution tick stream in a dedicated loop."""
-    logger.info("🎬 Initializing Trades (Ticker) Ingestion Pipeline...")
-    trades_pipeline = TradesProducer(
+def run_ticker_producer():
+    """Runs the ticker tick stream in a dedicated loop."""
+    logger.info("🎬 Initializing Ticker Ingestion Pipeline...")
+    ticker_pipeline = TickerProducer(
         broker=KAFKA_BROKER,
-        topic=KAFKA_TOPIC_TRADES,
+        topic=KAFKA_TOPIC_TICKER,
         products=COINBASE_PRODUCTS
     )
-    trades_pipeline.start_stream()
+    ticker_pipeline.start_stream()
 
 def run_l2_producer():
     """Runs the L2 depth order book stream in a dedicated loop."""
@@ -54,10 +54,10 @@ def run_l2_producer():
 def main() -> None:
     logger.info("🚀 Starting Coinbase Real-Time Multi-Stream Ingestion System...")
     
-    # Spawn the Trades Producer in a dedicated thread
-    trades_thread = threading.Thread(target=run_trades_producer, name="TradesProducerThread", daemon=True)
-    trades_thread.start()
-    logger.info("🟢 Trades Ingestion Thread spawned and started.")
+    # Spawn the Ticker Producer in a dedicated thread
+    ticker_thread = threading.Thread(target=run_ticker_producer, name="TickerProducerThread", daemon=True)
+    ticker_thread.start()
+    logger.info("🟢 Ticker Ingestion Thread spawned and started.")
     
     # Spawn the L2 Producer in a dedicated thread
     l2_thread = threading.Thread(target=run_l2_producer, name="L2ProducerThread", daemon=True)
