@@ -155,63 +155,63 @@ GROUP BY symbol;
 
 ## 🤖 AI Data Analytics Agent (POC)
 
-An interactive, state-of-the-art **3-Stage Conversational Agentic Planner & Intent Router** querying your real-time streaming database on the fly using natural language.
+An interactive, state-of-the-art **3-Stage Conversational Agentic Planner & Intent Router** querying your real-time streaming database on the fly using natural language. The agent is built natively on **LangGraph**, formalizing the cognitive architecture as a stateful, checkpointer-backed state machine.
 
 ---
 
-### 🔬 3-Stage Pipeline Architecture
+### 🔬 3-Stage LangGraph Architecture
 
-Instead of a brittle, single-stage text-to-SQL script, the agent executes a structured **3-stage cognitive pipeline** designed in native Python for maximum speed and control:
+Instead of a brittle, single-stage text-to-SQL script, the agent executes a structured **3-stage cognitive pipeline** orchestrated by LangGraph nodes and conditional edges:
 
 ```
-                  ┌──────────────────────────────┐
-                  │      User Question / Prompt  │
-                  └──────────────┬───────────────┘
-                                 │
-                   [Stage 0: CoT Intent & Planner]
-                                 │
-         ┌───────────────────────┼───────────────────────┐
-         ▼                       ▼                       ▼
- ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
- │conversational│        │    strict    │        │    vague     │
- │   refusal    │        │ quantitative │        │  analytical  │
- └──────┬───────┘        └──────┬───────┘        └──────┬───────┘
-        │                       │                       │
- [Scope Refusal]                │            [Empirical Plan Formulated]
-        │                       └───────────┬───────────┘
-        ▼                                   │
- ┌──────────────┐                 [Stage 1: Safety Guard]
- │Bypasses DB,  │                           │
- │Explanatory   │                    [Execute Query]
- │   Refusal    │                           │
- └──────────────┘                           ▼
-                                  ┌───────────────────┐
-                                  │   ClickHouse DB   │
-                                  └─────────┬─────────┘
-                                            │
-                                            ▼
-                                  [Stage 2: Insights Synthesizer]
-                                            │
-                                            ▼
-                               ┌───────────────────────────┐
-                               │Grounded Markdown Dashboard│
-                               │(with Financial Disclaimer)│
-                               └───────────────────────────┘
+                        ┌────────────────────────┐
+                        │         START          │
+                        └───────────┬────────────┘
+                                    │
+                                    ▼
+                        ┌────────────────────────┐
+                        │     planner_node       │
+                        │   (Stage 0: Planner)   │
+                        └───────────┬────────────┘
+                                    │
+                             [route_intent]
+                                    │
+                  ┌─────────────────┴─────────────────┐
+                  │                                   │
+                  ▼                                   ▼
+        ┌──────────────────┐                ┌──────────────────┐
+        │   refusal_node   │                │ db_executor_node │
+        │ (Out-of-Scope)   │                │(Stage 1: Safety) │
+        └─────────┬────────┘                └─────────┬────────┘
+                  │                                   │
+                  │                                   ▼
+                  │                         ┌──────────────────┐
+                  │                         │insights_responder│
+                  │                         │(Stage 2: Synth)  │
+                  │                         └─────────┬────────┘
+                  │                                   │
+                  └─────────────────┬─────────────────┘
+                                    ▼
+                        ┌────────────────────────┐
+                        │          END           │
+                        └────────────────────────┘
 ```
 
-#### 1. Stage 0: Intent Classifier & Planner (CoT)
-Evaluates user prompts utilizing **Chain-of-Thought (CoT)** reasoning. Before generating any database code, the model classifies user intent into one of three categories:
-*   `conversational_refusal`: The query is unrelated to cryptocurrency or completely out of scope of our database schema.
-*   `strict_quantitative`: The query is a direct request for specific database values or aggregates.
-*   `vague_analytical`: The query is speculative, qualitative, or causal (e.g. *"Which coin will make me a millionaire the fastest?"*, *"Why did Bitcoin price drop?"*). Evolving the speculative query into a structured, empirical search plan, it plans SQL queries to fetch indicators of momentum, volatility, and volume surges.
+#### 1. Stage 0: Intent Classifier & Planner Node
+Evaluates user prompts using **Chain-of-Thought (CoT)** reasoning. Prepends multi-turn thread history dynamically. The planner classifies user intent into:
+*   `conversational_refusal`: Out of scope (unrelated to our ClickHouse schemas). Routes directly to the Refusal node.
+*   `strict_quantitative`: Direct requests for live price tickers, spikes, beta correlations, or drawdowns.
+*   `vague_analytical`: Speculative or qualitative questions (e.g. *"Which coin will make me a millionaire the fastest?"*, *"Why did Bitcoin price drop?"*). Automatically translates speculative requests into safe, empirical database analysis plans to fetch indicators of momentum and volatility.
 
-#### 2. Stage 1: Safety Guard & Database Execution
-*   If `conversational_refusal`, the agent bypasses the database entirely, executing a custom system fallback that explains our exact database coverage boundaries.
-*   If `strict_quantitative` or `vague_analytical`, the generated SQL is passed to a strict, comment-stripping read-only safety validator `is_query_safe(sql)`. Forbidden write-keywords (e.g., `DROP`, `DELETE`, `TRUNCATE`) are blocked immediately. Verified queries are executed against ClickHouse with `MAX_ROWS` limits.
+#### 2. Stage 1: Safety Guard & Database Executor Node
+*   If routed to `refusal_node`, bypasses the database entirely and synthesizes a polite, out-of-scope response outlining our Coinbase data limits.
+*   If routed to `db_executor_node`, verifies SQL safety via a comment-stripping read-only guard (`is_query_safe(sql)`). Blocks forbidden write-keywords (`DROP`, `ALTER`, `TRUNCATE`). Verified read-only queries are executed against ClickHouse with standard `MAX_ROWS` truncation.
 
-#### 3. Stage 2: Insights Synthesizer & Disclaimers
-Takes the original question, Stage 0 planner thoughts, executed query, and returned database rows, synthesizing a premium, markdown-formatted dashboard response.
-*   **Speculative Prompt Handlers**: For `vague_analytical` prompts, the synthesizer automatically prepends a prominent, **bold italicized financial disclaimer** explaining that it does not offer financial advice, and presents empirical indicators of risk and momentum to help the user evaluate trends objectively.
+#### 3. Stage 3: Insights Synthesizer Node
+Takes the question, planner CoT thoughts, executed SQL, and ClickHouse rows, synthesizing a grounded, markdown dashboard. For speculative inquiries, it automatically prepends a prominent, **bold italicized financial disclaimer** explaining that it does not offer financial advice, encouraging objective analytical evaluation.
+
+#### 4. 🧠 Stateful Thread Memory (LangGraph Checkpointers)
+Built-in conversational state is managed seamlessly across turns using LangGraph's native `MemorySaver` checkpointer. State histories and execution dependencies (`provider`, `db_client`) are passed dynamically inside runnable config contexts, resolving serialization side-effects and providing thread-safe multi-turn coreference resolution (e.g. *"What about SOL-USD?"* after asking about Ethereum drawdown).
 
 ---
 

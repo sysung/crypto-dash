@@ -1,9 +1,9 @@
-import os
-import re
-import sys
 import argparse
+import os
+import sys
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import List, Optional
+
 import clickhouse_connect
 from dotenv import load_dotenv
 
@@ -12,261 +12,92 @@ providers_dir = str(Path(__file__).resolve().parent / "providers")
 if providers_dir not in sys.path:
     sys.path.append(providers_dir)
 
-from providers import get_provider, BaseLLMProvider
+from providers import BaseLLMProvider, get_provider
+from nodes import agent_app
+from utils.db import get_clickhouse_client
 
-# 1. Dynamically locate and load the .env file in the root directory
+# Dynamically locate and load the .env file in the root directory
 ROOT_ENV_PATH = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=ROOT_ENV_PATH)
 
 
-def get_clickhouse_client() -> clickhouse_connect.driver.Client:
-    """
-    Initializes and returns a connection to the ClickHouse database.
-    Configuration values are fetched from environment variables with safe defaults.
-    """
-    host = os.getenv("CLICKHOUSE_HOST", "localhost")
-    port = int(os.getenv("CLICKHOUSE_PORT", "8123"))
-    username = os.getenv("CLICKHOUSE_USER", "default")
-    password = os.getenv("CLICKHOUSE_PASSWORD", "password123")
-
-    try:
-        return clickhouse_connect.get_client(
-            host=host,
-            port=port,
-            username=username,
-            password=password
-        )
-    except Exception as e:
-        print(f"❌ ClickHouse Database Connection Failed: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-# 2. Define Stage 0 & 1: The Conversational Agentic Planner & SQL Router Prompt
-PLANNER_INSTRUCTION = """
-You are the master Orchestrator, Intent Classifier, and SQL Planner for a real-time cryptocurrency data agent.
-Your job is to analyze the user's natural language question, perform Chain-of-Thought (CoT) reasoning, classify the user's intent, and formulate a database search plan.
-
-The database has the following tables and views:
-
-1. 'default.crypto_ticks_raw' stores high-frequency individual trade ticker events.
-Columns:
-- symbol (String): Crypto token pair, e.g. 'BTC-USD', 'ETH-USD', 'SOL-USD'
-- price (Float64): Tick price in USD
-- volume_24h (Float64): Rolling 24-hour trading volume
-- best_bid (Float64), best_ask (Float64)
-- best_bid_quantity (Float64), best_ask_quantity (Float64)
-- low_24h (Float64), high_24h (Float64), low_52w (Float64), high_52w (Float64)
-- price_percent_chg_24h (Float64)
-- sequence_num (Int64)
-- timestamp (String): ISO timestamp string
-- server_time (DateTime64(9)): Parsed server envelope time.
-
-2. 'default.crypto_l2_raw' stores L2 order book depth updates.
-Columns:
-- symbol (String), side (String), price (Float64), volume (Float64), event_time (String), sequence_num (Int64), timestamp (String)
-
-3. 'default.crypto_ohlcv_1m', 'default.crypto_ohlcv_5m', 'default.crypto_ohlcv_24h' (OHLCV aggregated target tables)
-Columns:
-- symbol (String)
-- window_start (DateTime)
-- open (Float64), high (Float64), low (Float64), close (Float64), volume (Float64)
-
-4. 'default.view_volume_spikes' (View detecting 5-minute volume spikes relative to a rolling 30-day average baseline)
-Columns:
-- symbol (String), window_start (DateTime), volume (Float64), rolling_30d_avg_volume (Float64), volume_spike_ratio (Float64)
-
-5. 'default.view_risk_and_volatility' (View tracking hourly volatility, current drawdown, and rolling 30-day max drawdown)
-Columns:
-- symbol (String), window_start (DateTime), close (Float64), rolling_30d_volatility_hourly (Float64), current_drawdown (Float64), rolling_30d_max_drawdown (Float64)
-
-6. 'default.view_altcoin_beta' (View calculating hourly altcoin beta relative to BTC-USD over rolling 24-hour windows)
-Columns:
-- symbol (String), window_start (DateTime), r_alt (Float64), r_btc (Float64), covariance_24h (Float64), variance_btc_24h (Float64), hourly_beta_24h (Float64)
-
-7. 'default.token_metadata' (Static table with structural coin facts)
-Columns:
-- symbol (String), name (String), utility (String), consensus_mechanism (String), security_checklist (String), launched_year (UInt16)
-
-Available streaming tokens are: 'BTC-USD', 'ETH-USD', 'USDT-USD', 'BNB-USD', 'XRP-USD', 'USDC-USD', 'SOL-USD', 'DOGE-USD'.
-
-Intent Classifications:
-1. 'conversational_refusal': The user's query is out of scope, completely unrelated to cryptocurrency, or completely unrelated to our specific ClickHouse streaming dataset.
-2. 'strict_quantitative': The user's query asks for direct, quantitative metrics (e.g. latest price, highest volume spike, volatility stats).
-3. 'vague_analytical': The user's query asks speculative, qualitative, or analytical questions (e.g., "Which coin will make me a millionaire the fastest?", "Which is the safest?", "Which coin is best to buy today?", "Explain why BTC price is dropping").
-
-Rules for Intent & Plan Generation:
-1. For 'conversational_refusal', do NOT generate a SQL query. Set 'Planned SQL' to 'NONE'.
-2. For 'vague_analytical', translate the qualitative/speculative intent into a safe, empirical database analysis plan. Generate a SQL query that retrieves relevant quantitative metrics (volatility, momentum, drawdowns) from the database that can ground your speculative/analytical answer.
-3. For 'strict_quantitative', generate the exact, read-only SELECT/WITH SQL query to fetch the requested metrics.
-4. For hybrid queries combining structural token facts (utility, consensus) and live risk/drawdown metrics, perform a JOIN on the `symbol` column. Make sure that metrics columns like `close`, `window_start`, and `rolling_30d_max_drawdown` are selected from the risk view subquery/alias, and NOT from the static `token_metadata` table.
-5. All queries must start with SELECT or WITH.
-6. Always search or filter for specific symbols exactly as provided (e.g., 'BTC-USD').
-
-You MUST output your response in EXACTLY this format, with no markdown code blocks around the text, and no other text:
-
-Thought: <your Chain-of-Thought reasoning about the query and plan>
-Intent: <conversational_refusal | strict_quantitative | vague_analytical>
-Planned SQL: <valid SQL query, or NONE>
-"""
-
-# 3. Define Stage 2: The Insights Responder Prompt (PEP 8 Uppercase Constant)
-RESPONDER_INSTRUCTION = """
-You are a specialized Cryptocurrency Insights Assistant.
-Your job is to synthesize raw data queries returned from a ClickHouse database into a clean, grounded, dashboard-friendly conversational response.
-
-You will receive:
-1. The user's original question.
-2. The Planner's Chain-of-Thought reasoning.
-3. The exact SQL query that was executed.
-4. The raw database rows returned from ClickHouse.
-
-Guidelines:
-1. Synthesize the results into a concise, professional, and visually engaging response.
-2. Ground all numbers and statements strictly in the database results. Do not hallucinate or assume values.
-3. If the Planner classified the question as 'vague_analytical' (e.g. speculative questions like "millionaire fastest" or "best coin to buy"):
-   - Begin your response with a clear, friendly financial disclaimer explaining that you do not offer financial advice.
-   - Explain how you used empirical data (e.g. checking volatility, volume spikes, and token utility) to evaluate the question.
-   - Summarize the metrics and utility findings to help the user evaluate their options objectively.
-4. Format your output cleanly in Markdown, using bullet points, bolding, or lists where appropriate to make it highly readable.
-5. If the user asked a complex analytical question (like volatility, drawdown, or beta), briefly explain the financial context of the returned metric in one sentence.
-"""
-
-
-def is_query_safe(sql: str) -> Tuple[bool, str]:
-    """
-    Validates that the generated SQL query is read-only and safe for execution.
-    Strips single-line and multi-line SQL comments and checks for forbidden keywords.
-    """
-    cleaned_sql = re.sub(r"--.*", "", sql)
-    cleaned_sql = re.sub(r"/\*.*?\*/", "", cleaned_sql, flags=re.DOTALL)
-    cleaned_sql = cleaned_sql.strip()
-
-    if not cleaned_sql:
-        return False, "Query is empty."
-
-    upper_sql = cleaned_sql.upper()
-
-    if not (upper_sql.startswith("SELECT") or upper_sql.startswith("WITH")):
-        return False, "Query must start with SELECT or WITH."
-
-    forbidden_patterns = [
-        r"\bDROP\b",
-        r"\bALTER\b",
-        r"\bTRUNCATE\b",
-        r"\bINSERT\b",
-        r"\bUPDATE\b",
-        r"\bDELETE\b",
-        r"\bCREATE\b",
-        r"\bREPLACE\b"
-    ]
-
-    for pattern in forbidden_patterns:
-        if re.search(pattern, upper_sql):
-            keyword = pattern.replace(r"\b", "")
-            return False, f"Forbidden SQL keyword detected: {keyword}"
-
-    return True, ""
-
-
-def run_agent(question: str, provider: BaseLLMProvider, client: clickhouse_connect.driver.Client) -> None:
+def run_agent(
+    question: str,
+    provider: BaseLLMProvider,
+    client: clickhouse_connect.driver.Client,
+    history: Optional[List[dict]] = None
+) -> Optional[str]:
     """
     Orchestrates the 3-Stage Conversational Agentic Planner & Intent Router pipeline.
-    Classifies intent via Stage 0 CoT Planner, routes conversational refusals,
-    executes planned SQL, and synthesizes data-grounded insights.
+    Utilizes a LangGraph compiled state machine workflow under the hood.
     """
-    print(f"\n🗣️ Question: {question}")
-
-    # --- STAGE 0: INTENT CLASSIFICATION & PLANNING ---
+    # Create the initial state
+    initial_state = {
+        "question": question,
+        "history": history if history is not None else [],
+        "thought": "",
+        "intent": "",
+        "planned_sql": "",
+        "sql_results": "",
+        "row_count": 0,
+        "execution_error": None,
+        "response": ""
+    }
+    
+    # Configure a session context thread ID and pass execution dependencies
+    config = {
+        "configurable": {
+            "thread_id": "crypto-agent-repl-thread",
+            "provider": provider,
+            "db_client": client
+        }
+    }
+    
     try:
-        raw_planner_text = provider.generate(PLANNER_INSTRUCTION, question)
+        # Invoke the LangGraph workflow
+        final_state = agent_app.invoke(initial_state, config)
         
-        # Parse output using strict structural regexes
-        thought_match = re.search(r"Thought:\s*(.*?)(?=\bIntent:|$)", raw_planner_text, re.DOTALL | re.IGNORECASE)
-        intent_match = re.search(r"Intent:\s*(.*?)(?=\bPlanned SQL:|$)", raw_planner_text, re.DOTALL | re.IGNORECASE)
-        sql_match = re.search(r"Planned SQL:\s*(.*)", raw_planner_text, re.DOTALL | re.IGNORECASE)
-
-        thought = thought_match.group(1).strip() if thought_match else "No explicit thoughts recorded."
-        intent = intent_match.group(1).strip().lower() if intent_match else "strict_quantitative"
-        planned_sql = sql_match.group(1).strip() if sql_match else "NONE"
-
-        # Strip markdown SQL wraps if the LLM output it
-        sql_block_match = re.search(r"```(?:sql)?\n?(.*?)\n?```", planned_sql, re.IGNORECASE | re.DOTALL)
-        if sql_block_match:
-            planned_sql = sql_block_match.group(1).strip()
-
+        # Extract and print intermediate results for premium CLI feel
+        thought = final_state.get("thought", "No explicit thoughts recorded.")
+        intent = final_state.get("intent", "strict_quantitative")
+        planned_sql = final_state.get("planned_sql", "NONE")
+        execution_error = final_state.get("execution_error")
+        row_count = final_state.get("row_count", 0)
+        response = final_state.get("response", "")
+        
         print(f"🧠 Stage 0 Thought:\n   {thought}")
         print(f"🎯 Stage 0 Intent: {intent.upper()}")
+        
         if planned_sql != "NONE":
             print(f"🤖 Stage 1 Generated SQL: {planned_sql}")
-
-    except Exception as e:
-        print(f"❌ Stage 0 Intent Planner Failed: {e}", file=sys.stderr)
-        return
-
-    # --- ROUTING LOGIC ---
-    if intent == "conversational_refusal":
-        # Create a friendly out-of-scope refusal detailing dataset boundaries
-        refusal_instruction = """
-You are a specialized Cryptocurrency Data Agent.
-The user has asked a question that is completely out of scope (unrelated to cryptocurrency, or completely unrelated to our ClickHouse streaming dataset).
-Politely refuse to answer, and clearly explain that you only have access to real-time Coinbase streaming metrics (OHLCV, order book depth, volatility, volume spikes, and altcoin beta) and structural token metadata facts. Do not answer general questions (e.g. tell a joke, write a poem, explain historical facts outside our token metadata).
-"""
-        try:
-            synthesized_answer = provider.generate(refusal_instruction, question)
+            
+        if execution_error:
+            if "Blocked" in execution_error:
+                print(f"🛑 Security Guard Blocked Query: {execution_error}", file=sys.stderr)
+            else:
+                print(f"❌ ClickHouse Execution Error: {execution_error}", file=sys.stderr)
+        elif planned_sql != "NONE":
+            print(f"📊 clickhouse-connect Executed (Returned {row_count} rows)")
+            
+        # Output final synthesized answer
+        if intent == "conversational_refusal":
             print("\n✨ Response:")
-            print(synthesized_answer)
-            print("-" * 50)
-        except Exception as e:
-            print(f"❌ Refusal Synthesis Failed: {e}", file=sys.stderr)
-        return
-
-    # Verify query safety before running it
-    is_safe, error_msg = is_query_safe(planned_sql)
-    if not is_safe:
-        print(f"🛑 Security Guard Blocked Query: {error_msg}", file=sys.stderr)
-        return
-
-    # --- INTERMEDIATE: DATABASE EXECUTION ---
-    try:
-        result = client.query(planned_sql)
-        raw_results = []
-
-        # Hardened with maximum row count limit protection (Context Protection)
-        MAX_ROWS = 50
-        rows = list(result.named_results())
-        row_count = len(rows)
-
-        for idx, row in enumerate(rows):
-            if idx >= MAX_ROWS:
-                raw_results.append(f"... [Truncated: {row_count - MAX_ROWS} additional rows returned]")
-                break
-            raw_results.append(str(row))
-
-        results_str = "\n".join(raw_results)
-        print(f"📊 clickhouse-connect Executed (Returned {row_count} rows)")
-
-    except Exception as e:
-        print(f"❌ ClickHouse Execution Error: {e}", file=sys.stderr)
-        return
-
-    # --- STAGE 2: INSIGHTS RESPONDER & SYNTHESIS ---
-    try:
-        # Prompt construction for Stage 2
-        responder_prompt = f"""
-User Question: {question}
-Planner CoT Thought: {thought}
-SQL Executed: {planned_sql}
-Database Results:
-{results_str if results_str else 'No rows returned.'}
-"""
-        synthesized_answer = provider.generate(RESPONDER_INSTRUCTION, responder_prompt)
-
-        print("\n✨ Synthesized Response:")
-        print(synthesized_answer)
+        else:
+            print("\n✨ Synthesized Response:")
+            
+        print(response)
         print("-" * 50)
-
+        
+        # Mutate the caller's history parameter in-place to preserve compatibility
+        if history is not None:
+            history.clear()
+            history.extend(final_state.get("history", []))
+            
+        return response
+        
     except Exception as e:
-        print(f"❌ Stage 2 Response Synthesis Failed: {e}", file=sys.stderr)
+        print(f"❌ LangGraph Pipeline Execution Failed: {e}", file=sys.stderr)
+        return None
 
 
 if __name__ == "__main__":
@@ -335,20 +166,116 @@ if __name__ == "__main__":
         for q in test_questions:
             run_agent(q, provider_instance, db_client)
 
+        print("\n🧠 Running Multi-Turn Memory Verification Suite...")
+        test_history = []
+        multi_turn_questions = [
+            "What is the current drawdown and 30-day rolling max drawdown for ETH-USD?",
+            "What about SOL-USD?",
+            "Compare the utility of these two tokens that we just discussed."
+        ]
+        for q in multi_turn_questions:
+            run_agent(q, provider_instance, db_client, history=test_history)
+
     else:
-        # Launch beautiful, premium interactive REPL session
+        # Launch beautiful, premium interactive REPL session with slash commands
         print("\n✨ Entered Interactive REPL Mode. Type your question and press Enter.")
+        print("Special Commands:")
+        print("  /clear          - Clear conversation memory")
+        print("  /history        - View active session history")
+        print("  /save <file>    - Save active session history to a JSON file")
+        print("  /load <file>    - Load a session history from a JSON file")
+        print("  /help           - Show this help menu")
         print("Type 'exit', 'quit', or Ctrl+C to terminate the session.\n")
+        
+        history = []
         try:
             while True:
-                user_input = input("💡 Ask a question: ").strip()
+                turn_count = len(history) // 2
+                prompt_suffix = f" [Memory: {turn_count} turns]" if turn_count > 0 else ""
+                user_input = input(f"💡 Ask a question{prompt_suffix}: ").strip()
+                
                 if not user_input:
                     continue
+                
                 if user_input.lower() in ["exit", "quit"]:
                     print("👋 Goodbye!")
                     break
+                
+                if user_input.startswith("/"):
+                    cmd_parts = user_input.split(maxsplit=1)
+                    cmd = cmd_parts[0].lower()
+                    arg = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+                    
+                    if cmd == "/clear":
+                        history.clear()
+                        # Also clear the LangGraph checkpointer memory by invoking with empty history
+                        config = {"configurable": {"thread_id": "crypto-agent-repl-thread"}}
+                        agent_app.update_state(config, {"history": []})
+                        print("🧹 Conversational memory cleared!")
+                        continue
+                    elif cmd == "/history":
+                        if not history:
+                            print("📭 Conversational memory is empty.")
+                        else:
+                            print("\n📜 Active Session History:")
+                            for turn in history:
+                                role = "🗣️ User" if turn["role"] == "user" else "✨ Assistant"
+                                print(f"{role}: {turn['content']}\n")
+                        continue
+                    elif cmd == "/help":
+                        print("\n🛠️ Available Commands:")
+                        print("  /clear          - Clear conversation memory")
+                        print("  /history        - View active session history")
+                        print("  /save <file>    - Save active session history to a JSON file")
+                        print("  /load <file>    - Load a session history from a JSON file")
+                        print("  /help           - Show this help menu")
+                        continue
+                    elif cmd == "/save":
+                        if not arg:
+                            print("❌ Please specify a filename, e.g., /save my_session.json")
+                            continue
+                        filepath = Path(arg)
+                        if filepath.suffix != ".json":
+                            filepath = filepath.with_suffix(".json")
+                        try:
+                            import json
+                            with open(filepath, "w") as f:
+                                json.dump(history, f, indent=2)
+                            print(f"💾 Session history saved successfully to {filepath}")
+                        except Exception as e:
+                            print(f"❌ Failed to save session: {e}", file=sys.stderr)
+                        continue
+                    elif cmd == "/load":
+                        if not arg:
+                            print("❌ Please specify a filename to load, e.g., /load my_session.json")
+                            continue
+                        filepath = Path(arg)
+                        if filepath.suffix != ".json":
+                            filepath = filepath.with_suffix(".json")
+                        if not filepath.exists():
+                            print(f"❌ File not found: {filepath}")
+                            continue
+                        try:
+                            import json
+                            with open(filepath, "r") as f:
+                                loaded_history = json.load(f)
+                            if isinstance(loaded_history, list) and all(isinstance(t, dict) and "role" in t and "content" in t for t in loaded_history):
+                                history[:] = loaded_history
+                                # Also update LangGraph checkpointer memory
+                                config = {"configurable": {"thread_id": "crypto-agent-repl-thread"}}
+                                agent_app.update_state(config, {"history": history})
+                                print(f"📂 Loaded session history from {filepath} ({len(history) // 2} turns)")
+                            else:
+                                print("❌ Invalid session history file format.")
+                        except Exception as e:
+                            print(f"❌ Failed to load session: {e}", file=sys.stderr)
+                        continue
+                    else:
+                        print(f"❓ Unknown command: {cmd}. Type /help for assistance.")
+                        continue
+                
                 try:
-                    run_agent(user_input, provider_instance, db_client)
+                    run_agent(user_input, provider_instance, db_client, history=history)
                 except KeyboardInterrupt:
                     print("\n⚠️ Query cancelled by user.")
                 except Exception as e:
