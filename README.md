@@ -1,10 +1,144 @@
 # 🪙 Real-Time Crypto Streaming Pipeline
 
-A production-grade, real-time data streaming pipeline. This architecture ingests high-frequency trade events from Coinbase, buffers them via Apache Kafka, and streams them directly into a ClickHouse OLAP database for sub-second analytical querying and real-time visualization.
+A production-grade, real-time data streaming pipeline. This architecture ingests high-frequency trade events from Coinbase, buffers them via Apache Kafka, and streams them directly into a ClickHouse OLAP database for sub-second analytical querying and real-time visualization. It features a stateful, multi-stage LangGraph AI Agent to query your real-time database via natural language.
 
 ---
 
-## 🏗️ System Architecture
+## 🚀 Part 1: Getting Started Quickly (Playground Guide)
+
+This section is designed to get you up, running, and playing with the data and AI agent as fast as possible.
+
+### 📋 Prerequisites
+
+Before launching the stack, ensure you have:
+1. **Docker Desktop** installed and running.
+2. **Python 3.11+** (optional, for local client testing).
+3. **API Keys & Configuration** in a `.env` file in the project root:
+   - **Coinbase API Keys**: **Not Required**. The ingestion pipeline streams from public WebSocket feeds.
+   - **AI_PROVIDER**: Determines which LLM service the agent uses (`gemini` or `hf`). Defaults to `gemini` if not specified.
+   - **GEMINI_API_KEY**: Required for the default `gemini` AI agent (obtain a free key from [Google AI Studio](https://aistudio.google.com/)).
+   - **HF_TOKEN**: Required if you switch `AI_PROVIDER=hf` to run serverless inference on Hugging Face (obtain from [Hugging Face Settings](https://huggingface.co/settings/tokens)).
+
+Create a `.env` file in the root of the project:
+```env
+# Selected LLM provider: 'gemini' or 'hf'
+AI_PROVIDER=gemini
+
+# LLM API credentials
+GEMINI_API_KEY=your_gemini_api_key_here
+HF_TOKEN=your_huggingface_access_token_here
+
+# Optional: Customize host ports to avoid local conflicts (default values shown)
+# KAFKA_PORT=9092
+# KAFKA_UI_PORT=8080
+# CLICKHOUSE_HTTP_PORT=8123
+# CLICKHOUSE_NATIVE_PORT=9000
+# CHAT_BACKEND_PORT=8000
+```
+
+### 1. Boot the Stack
+Build and spin up the containerized pipeline from the root directory:
+```bash
+# Clean reset of existing volumes (highly recommended)
+docker compose down -v
+
+# Boot the stack in detached mode
+docker compose up -d --build
+```
+This initializes Kafka (KRaft), Kafka UI, ClickHouse, the Python Coinbase websocket producer, and the FastAPI Chat Agent.
+
+### 2. Access Dashboards & Web UIs
+Once the containers boot, you can access the following services locally (or using the custom ports defined in your `.env`):
+
+*   **📊 Kafka UI**: [http://localhost:8080](http://localhost:8080)
+    *   Browse live message partitions, cluster health, and verify raw events streaming into `raw_crypto_ticker` and `raw_crypto_l2` topics.
+*   **⚡ ClickHouse Playground**: [http://localhost:8123/play](http://localhost:8123/play)
+    *   An interactive browser-based SQL console.
+    *   **User:** `default`
+    *   **Password:** `password123`
+*   **🤖 FastAPI Agent Service**: [http://localhost:8000/api/health](http://localhost:8000/api/health)
+    *   Verify the AI Agent's database connectivity and model initialization status.
+
+
+---
+
+## 📊 Product 1: The ClickHouse Database Playground
+The Coinbase WebSocket producer streams raw trade data and L2 order books continuously. You can verify and interact with this live stream by executing queries in the **ClickHouse Playground**:
+
+### 💡 Example SQL Queries to Try:
+
+#### 1. Real-Time Price Tickers (Last 10 Rows)
+```sql
+SELECT symbol, price, volume_24h, best_bid, best_ask, server_time 
+FROM crypto_ticks_raw 
+ORDER BY server_time DESC
+LIMIT 10;
+```
+
+#### 2. Streaming Volumetrics & Average Prices
+```sql
+SELECT symbol, count() AS tick_count, round(avg(price), 2) AS avg_price 
+FROM crypto_ticks_raw 
+GROUP BY symbol;
+```
+
+#### 3. Flattened L2 Order Book Depth Updates (Last 10 Rows)
+```sql
+SELECT symbol, side, price, volume, trade_time 
+FROM crypto_l2_raw 
+ORDER BY trade_time DESC
+LIMIT 10;
+```
+
+#### 4. Live Best Bid-Ask Spreads (Computed from L2 Data)
+```sql
+SELECT 
+    symbol, 
+    max(price) FILTER(WHERE side = 'bid') AS best_bid, 
+    min(price) FILTER(WHERE side = 'offer') AS best_ask, 
+    round(best_ask - best_bid, 4) AS spread 
+FROM crypto_l2_raw 
+GROUP BY symbol;
+```
+
+---
+
+## 🤖 Product 2: Conversational AI Analytics Agent
+The backend hosts an interactive **3-Stage Conversational Agentic Planner & SQL Router** powered by **LangGraph**. It translates natural language questions into safe ClickHouse SQL queries, runs them, and returns formatted responses.
+
+### 💡 Sample Prompts to Try
+Test the agent using the prompt categories below:
+
+| Category | Sample Prompt | Under the Hood (Agent Action) |
+| :--- | :--- | :--- |
+| **Out-of-Scope Refusal** | `"What is the capital city of France?"` | Bypasses ClickHouse database; agent politely declines to answer non-crypto questions. |
+| **Speculative Query** | `"Which coin will make me a millionaire the fastest? Explain your reasoning."` | Translates a vague question into a safe analytical plan on momentum/volatility, and returns findings prepended with a **bold financial disclaimer**. |
+| **Spread Analysis** | `"Show me the latest best bid, best ask, and spread for SOL-USD computed from the L2 updates."` | Executes standard SQL filtering `crypto_l2_raw` by bid/offer sides and calculates the spread. |
+| **Market Volumetrics** | `"Did the volume for ETH-USD spike over the last hour, or is the market quiet?"` | Queries rolling volume aggregates in ClickHouse to determine volume change ratios. |
+
+### 🧪 Fast Testing via CLI
+You can test the agent's response directly from your terminal:
+```bash
+curl -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Give me the average price of BTC-USD in our database"}'
+```
+
+To run the full backend testing suite:
+```bash
+# Install local requirements
+pip install -r backend/requirements.txt
+
+# Run automated tests
+python backend/tests/test_api.py
+```
+
+---
+
+## 🏗️ Part 2: Technical Implementation & Architecture
+
+### System Architecture
+The following flowchart illustrates the high-throughput ingestion flow and the agentic query path:
 
 ```mermaid
 graph TD
@@ -40,254 +174,63 @@ graph TD
     Kafka -->|Native Ingestion| ClickHouse
 ```
 
----
-
-## ⚡ Core Features
-
-- **Modular Multi-Stream Ingestion**: Implements an elegant Object-Oriented Design (OOD) with a shared base class wrapper (`BaseCoinbaseProducer`) and decoupled, parallel execution threads for real-time Ticker and L2 Order Book Depth.
-- **High-Fidelity Schema Extraction**: Ingests the modern Coinbase Advanced Trade WebSocket API, capturing all 12+ pricing, spread limits, sequence numbers, and deep L2 bids/offers (flattened and streamed independently).
-- **Shock-Absorbing Broker Separation**: Routes ticker and L2 depth to **separate Kafka topics** (`raw_crypto_ticker` and `raw_crypto_l2`) to decouple analytical loads and optimize performance.
-- **Zero-Connector Ingestion**: ClickHouse pulls directly from Kafka using its **Native Kafka Engine** and a **Materialized View**, eliminating heavy middleware.
-- **Resilient loops**: Thread-safe buffering queues, high-performance LZ4 network payload compression, progressive startup connection backoffs, and robust loop-based non-recursive reconnection supervisors.
-- **Fully Containerized**: The entire data platform boots reliably with a single Docker Compose command.
-
----
-
-## 🛠️ Technology Stack
-
-| Component | Technology | Description |
-| :--- | :--- | :--- |
-| **Data Source** | [Coinbase WebSocket](https://docs.cloud.coinbase.com/exchange/docs/websocket-overview) | Real-time public trade ticker feed |
-| **Ingestion Engine** | [Python 3.11+](https://www.python.org/) | Thread-buffered client publishing to Kafka |
-| **Message Broker** | [Apache Kafka (KRaft)](https://kafka.apache.org/) | Scalable append-only event queueing |
-| **Observability** | [Kafka UI](https://github.com/provectuslabs/kafka-ui) | Web UI for broker monitoring and topic inspection |
-| **OLAP Database** | [ClickHouse](https://clickhouse.com/) | Columnar database for high-throughput, low-latency analytics |
-| **Orchestration** | [Docker Compose](https://www.docker.com/) | Multi-container lifecycle orchestration |
+### Ingestion Details & Resiliency
+1.  **Multi-Stream Producer**:
+    *   An OOD base class wrapper (`BaseCoinbaseProducer`) powers decoupled threads for the `ticker` and `level2` websocket channels.
+    *   **In-Memory Buffering**: Websocket threads push JSON payloads to a thread-safe `queue.Queue`. A worker thread pulls tasks asynchronously to isolate network ingestion from Kafka broker latency.
+    *   **Compression**: Network payload size is compressed up to 70% using native **LZ4 compression**.
+    *   **Startup Sync**: Uses a 10-attempt exponential backoff supervisor to verify broker connection before ingesting.
+2.  **Apache Kafka (KRaft)**:
+    *   Operates without ZooKeeper. Tickers and L2 orders are segregated into separate topics (`raw_crypto_ticker`, `raw_crypto_l2`) to avoid consumer-side head-of-line blocking.
+3.  **ClickHouse Native Ingestion**:
+    *   ClickHouse connects directly to Kafka using native ingestion engines, avoiding middleware:
+        *   **Kafka Engine Tables** (`kafka_crypto_ticks`, `kafka_crypto_l2`): Consume from designated topics.
+        *   **Materialized Views** (`mv_crypto_ticks_raw`, `mv_crypto_l2_raw`): Parse raw JSON payloads and cast timestamps to high-precision `DateTime64` structures in the background.
+        *   **MergeTree Columnar Tables** (`crypto_ticks_raw`, `crypto_l2_raw`): Fast, on-disk columnar structures sorted by primary keys.
 
 ---
 
-## 🚀 Quick Start Guide
+### Conversational Agent Cognitive Architecture
+The agent uses a structured **3-stage LangGraph cognitive pipeline** rather than a single text-to-SQL script:
 
-### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
-- Python 3.11+ (optional, for local development)
-- **Gemini API Key** (required for the AI Agent; free from [Google AI Studio](https://aistudio.google.com/))
-
-### 1. Boot the Stack
-Spin up the containerized pipeline from the root directory. If a pre-existing pipeline is already running, perform a clean volume reset first to ensure database schema updates are correctly initialized:
-```bash
-# Clean reset (highly recommended if upgrading schemas)
-docker compose down -v
-
-# Boot the multi-stream stack
-docker compose up -d --build
-```
-This initializes Kafka (KRaft), Kafka UI (port `8080`), ClickHouse (port `8123` & `9000`), and the Python producer.
-
-### 2. Verify Data Ingestion
-Check the concurrent multi-stream logs:
-```bash
-docker compose logs -f crypto-producer
-```
-You should see parallel ingestion activities for both the Ticker (`Ticker`) and L2 Depth (`L2 Depth`) channels:
-```text
-crypto-producer  | 2026-05-30 14:40:11,532 [INFO] 📡 [Ticker] Ingest -> BTC-USD | Price: $73863.55 | 24h Vol: 4150.65 | Ask: 73863.55 (Queue: 0)
-crypto-producer  | 2026-05-30 14:40:11,538 [INFO] 📊 [L2 Depth] Ingest -> BTC-USD | OFFER | Price: $73863.55 | Vol: 0.006734 | Type: update (Queue: 0)
-crypto-producer  | 2026-05-30 14:40:11,539 [INFO] 📊 [L2 Depth] Ingest -> BTC-USD | BID | Price: $73788.01 | Vol: 0.000000 | Type: update (Queue: 1)
+```mermaid
+flowchart TD
+    Start([START]) --> Planner[planner_node<br>Stage 0: Planner]
+    Planner --> Route{route_intent}
+    
+    Route -->|conversational_refusal| Refusal[refusal_node<br>Out-of-Scope Refusal]
+    Route -->|strict_quantitative / vague_analytical| Executor[db_executor_node<br>Stage 1: Safety & Execute]
+    
+    Executor --> Responder[insights_responder<br>Stage 2: Synthesis]
+    
+    Refusal --> End([END])
+    Responder --> End
+    
+    classDef default fill:#111827,stroke:#374151,color:#f3f4f6;
+    classDef node fill:#1e1b4b,stroke:#4f46e5,color:#f3f4f6;
+    classDef route fill:#311042,stroke:#9333ea,color:#f3f4f6;
+    classDef bound fill:#064e3b,stroke:#059669,color:#f3f4f6;
+    
+    class Start,End bound;
+    class Planner,Executor,Responder node;
+    class Route route;
 ```
 
-### 3. Running Locally (Alternative)
-For local development, you can run the orchestrator outside Docker in your active virtual environment:
-```bash
-KAFKA_BROKER="localhost:9092" python producer/producer.py
-```
-This boots both streams concurrently in parallel execution threads on your host machine.
-
-### 4. Access Dashboards & Web UI
-* **Kafka UI**: Browse topic partitions and messages at `http://localhost:8080`.
-* **ClickHouse Playground**: Write queries in the browser console at `http://localhost:8123/play` (User: `default`, Password: `password123`).
+1.  **Stage 0: Intent Classifier & Planner**: Evaluates user prompts with Chain-of-Thought (CoT) reasoning. Decides whether requests are out-of-scope (`conversational_refusal`), direct queries (`strict_quantitative`), or require interpretation (`vague_analytical`).
+2.  **Stage 1: Safety Guard & Database Executor**: If valid, strips comments and blocks forbidden keywords (`DROP`, `ALTER`, `TRUNCATE`) using a read-only guard (`is_query_safe(sql)`). Executed queries are run against ClickHouse with `MAX_ROWS` constraints.
+3.  **Stage 2: Insights Synthesizer**: Formulates grounded markdown responses from data rows. Speculative queries are prepended with an explicit, bold financial disclaimer.
+4.  **Stateful Memory**: conversational history is persisted across turns using LangGraph's native `MemorySaver` checkpointer.
 
 ---
 
-## 🔍 Database Verification
+## 💡 Developer Tips
 
-Verify data flowing into ClickHouse using the **ClickHouse Playground**:
-
-1. Open your browser and navigate to **[http://localhost:8123/play](http://localhost:8123/play)**.
-2. Log in using the default credentials:
-   - **User:** `default`
-   - **Password:** `password123`
-3. Copy and run any of the following queries in the editor:
-
-### 1. Ingested Ticks (Last 10 Rows)
-```sql
-SELECT symbol, price, volume_24h, best_bid, best_ask, server_time 
-FROM crypto_ticks_raw 
-LIMIT 10;
-```
-
-### 2. Real-Time Ticks Aggregation Metrics
-```sql
-SELECT symbol, count(), round(avg(price), 2) AS avg_price 
-FROM crypto_ticks_raw 
-GROUP BY symbol;
-```
-
-### 3. Flattened L2 Order Book Depth Updates (Last 10 Rows)
-```sql
-SELECT symbol, side, price, volume, trade_time 
-FROM crypto_l2_raw 
-LIMIT 10;
-```
-
-### 4. Real-Time Best Bid-Ask Spreads (L2 Depth Data)
-```sql
-SELECT 
-    symbol, 
-    max(price) FILTER(WHERE side = 'bid') AS best_bid, 
-    min(price) FILTER(WHERE side = 'offer') AS best_ask, 
-    round(best_ask - best_bid, 4) AS spread 
-FROM crypto_l2_raw 
-GROUP BY symbol;
-```
-
----
-
-## 🤖 AI Data Analytics Agent (POC)
-
-An interactive, state-of-the-art **3-Stage Conversational Agentic Planner & Intent Router** querying your real-time streaming database on the fly using natural language. The agent is built natively on **LangGraph**, formalizing the cognitive architecture as a stateful, checkpointer-backed state machine.
-
----
-
-### 🔬 3-Stage LangGraph Architecture
-
-Instead of a brittle, single-stage text-to-SQL script, the agent executes a structured **3-stage cognitive pipeline** orchestrated by LangGraph nodes and conditional edges:
-
-```
-                        ┌────────────────────────┐
-                        │         START          │
-                        └───────────┬────────────┘
-                                    │
-                                    ▼
-                        ┌────────────────────────┐
-                        │     planner_node       │
-                        │   (Stage 0: Planner)   │
-                        └───────────┬────────────┘
-                                    │
-                             [route_intent]
-                                    │
-                  ┌─────────────────┴─────────────────┐
-                  │                                   │
-                  ▼                                   ▼
-        ┌──────────────────┐                ┌──────────────────┐
-        │   refusal_node   │                │ db_executor_node │
-        │ (Out-of-Scope)   │                │(Stage 1: Safety) │
-        └─────────┬────────┘                └─────────┬────────┘
-                  │                                   │
-                  │                                   ▼
-                  │                         ┌──────────────────┐
-                  │                         │insights_responder│
-                  │                         │(Stage 2: Synth)  │
-                  │                         └─────────┬────────┘
-                  │                                   │
-                  └─────────────────┬─────────────────┘
-                                    ▼
-                        ┌────────────────────────┐
-                        │          END           │
-                        └────────────────────────┘
-```
-
-#### 1. Stage 0: Intent Classifier & Planner Node
-Evaluates user prompts using **Chain-of-Thought (CoT)** reasoning. Prepends multi-turn thread history dynamically. The planner classifies user intent into:
-*   `conversational_refusal`: Out of scope (unrelated to our ClickHouse schemas). Routes directly to the Refusal node.
-*   `strict_quantitative`: Direct requests for live price tickers, spikes, beta correlations, or drawdowns.
-*   `vague_analytical`: Speculative or qualitative questions (e.g. *"Which coin will make me a millionaire the fastest?"*, *"Why did Bitcoin price drop?"*). Automatically translates speculative requests into safe, empirical database analysis plans to fetch indicators of momentum and volatility.
-
-#### 2. Stage 1: Safety Guard & Database Executor Node
-*   If routed to `refusal_node`, bypasses the database entirely and synthesizes a polite, out-of-scope response outlining our Coinbase data limits.
-*   If routed to `db_executor_node`, verifies SQL safety via a comment-stripping read-only guard (`is_query_safe(sql)`). Blocks forbidden write-keywords (`DROP`, `ALTER`, `TRUNCATE`). Verified read-only queries are executed against ClickHouse with standard `MAX_ROWS` truncation.
-
-#### 3. Stage 3: Insights Synthesizer Node
-Takes the question, planner CoT thoughts, executed SQL, and ClickHouse rows, synthesizing a grounded, markdown dashboard. For speculative inquiries, it automatically prepends a prominent, **bold italicized financial disclaimer** explaining that it does not offer financial advice, encouraging objective analytical evaluation.
-
-#### 4. 🧠 Stateful Thread Memory (LangGraph Checkpointers)
-Built-in conversational state is managed seamlessly across turns using LangGraph's native `MemorySaver` checkpointer. State histories and execution dependencies (`provider`, `db_client`) are passed dynamically inside runnable config contexts, resolving serialization side-effects and providing thread-safe multi-turn coreference resolution (e.g. *"What about SOL-USD?"* after asking about Ethereum drawdown).
-
----
-
-### 🚀 Running the Agent
-
-1. **Install dependencies**:
-   ```bash
-   pip install -r agent_poc/requirements.txt
-   ```
-
-2. **Configure your API Keys**:
-   Create a `.env` file in the project root and add your Gemini API Key and/or Hugging Face Access Token:
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key_here
-   HF_TOKEN=your_huggingface_access_token_here
-   ```
-
-3. **Execution Modes**:
-   *   **Interactive REPL Mode (Recommended)**:
-       Launches a premium, conversational shell session where you can ask successive questions:
-       ```bash
-       python agent_poc/agent.py --provider hf
-       ```
-   *   **Single Question Query**:
-       Run a single query directly from your terminal using the `-q` / `--question` flag:
-       ```bash
-       python agent_poc/agent.py --provider hf -q "Show me the current drawdown of BTC-USD"
-       ```
-   *   **Automated Evaluation Suite**:
-       Execute our pre-defined verification query suite across all intent categories:
-       ```bash
-       python agent_poc/agent.py --provider hf --test
-       ```
-
-4. **Model Provider Options (`--provider`)**:
-   *   `hf` (Default): Uses the remote serverless model `google/gemma-4-26B-A4B-it` routed through Hugging Face's high-reliability serverless completions endpoint `router.huggingface.co/v1/chat/completions`. Requires `HF_TOKEN`. Bypasses local DNS resolution failures and executes instantly.
-   *   `gemini`: Uses Google Gemini 3.5 Flash (requires `GEMINI_API_KEY`).
-   *   `local`: Runs the public, non-gated model `Qwen/Qwen2.5-1.5B-Instruct` completely locally on your hardware (Apple Silicon MPS, Nvidia CUDA, or CPU) via `transformers` (requires `torch`, `transformers`, `accelerate`). Automatically activates Hugging Face **offline mode** after weight initialization, guaranteeing secure, network-isolated execution.
-
----
-
-### 💡 Sample Prompts to Try
-
-The agent leverages high-frequency tick records, L2 depth spreads, static token metadata, and stateful pre-aggregated risk views to answer a diverse set of queries:
-
-| Category | Natural Language Prompt | Under the Hood (Agent Pipeline Action) |
-| :--- | :--- | :--- |
-| **Out-of-Scope Refusal** | `"What is the capital city of France?"` | Classified as `conversational_refusal`. Bypasses database, prints polite dataset boundary explanation. |
-| **Speculative Query** | `"Which coin will make me a millionaire the fastest? Explain your reasoning"` | Classified as `vague_analytical`. Generates query on `view_volume_spikes` and `view_risk_and_volatility`, displays a prominent financial disclaimer, and lists momentum leaders. |
-| **Causal Analysis** | `"Explain why BTC-USD price drops might justify its status as a relative safe haven compared to altcoins."` | Classified as `vague_analytical`. Joins static `token_metadata` (Proof of Work, Digital Gold) with `view_risk_and_volatility` log returns to ground a causal analysis. |
-| **Market Volumetrics** | `"Did the volume for ETH-USD spike over the last hour, or is the market quiet?"` | Classified as `strict_quantitative`. Queries `view_volume_spikes` for recent rolling ratios. |
-| **Spread Analysis** | `"Show me the latest best bid, best ask, and spread for SOL-USD computed from the L2 updates."` | Classified as `strict_quantitative`. Filters `crypto_l2_raw` by side and symbol to calculate market spreads. |
-
----
-
-## 🔬 Architectural Highlights
-
-### 1. In-Memory Queue Buffer
-The Python producer isolates the network thread from the Kafka producer to prevent packet drops due to backpressure:
-- **WebSocket Thread**: Ingests high-frequency JSON frames and pushes to a thread-safe `queue.Queue`.
-- **Worker Daemon**: Dequeues records and writes them to Kafka with **LZ4 compression** (saving up to 70% payload size).
-- **Startup Sync**: A 10-attempt exponential backoff guarantees clean Kafka connectivity on cold boots.
-
-### 2. ZooKeeper-less Apache Kafka (KRaft)
-Consensus is managed internally using KRaft, yielding sub-second controller election times, a streamlined footprint, and zero extra container overhead.
-
-### 3. Segregated Three-Tier Ingestion Pipelines
-To bypass heavy, resource-intensive middleware connectors, ClickHouse directly consumes from Kafka using segregated, modular pipelines:
-* **DDL Organization (`clickhouse/` directory)**: Segregates database definitions into independent, clean schemas (`01_ticks_schema.sql` and `02_l2_schema.sql`), auto-executed in order by the ClickHouse init wrapper upon boot.
-* **Twin Virtual Queues (`kafka_crypto_ticks` & `kafka_crypto_l2`)**: Active database Kafka-engine consumers subscribing to separate streams (`raw_crypto_ticker` and `raw_crypto_l2`).
-* **Twin Materialized Views (`mv_crypto_ticks_raw` & `mv_crypto_l2_raw`)**: Background, event-driven pipes parsing ISO-timestamp payloads into high-precision `DateTime64` formats and pushing records directly to disk.
-* **Twin Columns Stores (`crypto_ticks_raw` & `crypto_l2_raw`)**: High-performance MergeTree tables sorted by trading indexes (`ORDER BY`) to ensure sub-millisecond query execution.
-
----
-
-## 🛣️ Roadmap
-- [ ] **Real-Time Streamlit Dashboard**: Integrate a frontend to visualize live analytics directly from ClickHouse.
-- [X] **AI Assistant**: Introduce a Text-to-SQL chatbot leveraging Gemini to query streaming tables using natural language.
-- [ ] **Resilient API Rate-Limit Handling**: Integrate automatic retry-backoff algorithms (e.g., tenacity or standard loop delay guards) into the AI CLI agent to gracefully handle the 5 RPM free tier quota.
+*   **Avoiding Gemini Rate Limits (`AI_PROVIDER=hf`)**: 
+    The free Gemini tier has a **15 RPM (Requests Per Minute)** limit. If you hit this limit during development or testing, configure `AI_PROVIDER=hf` and supply your `HF_TOKEN` in `.env` to run agent serverless queries via Hugging Face.
+*   **Wiping Data vs. Ingestion Pipeline Restarts**:
+    Running `docker compose down -v` cleanly deletes all volume contents including Kafka offset markers and stored ClickHouse tables. If you only want to restart the ingestion stream (e.g., to reconnect to the WebSocket after network changes) without losing analytical data, run:
+    ```bash
+    docker compose restart crypto-producer
+    ```
+*   **Handling Local Port Conflicts**:
+    You can customize the exposed host ports for any service by defining variables such as `KAFKA_UI_PORT` or `CHAT_BACKEND_PORT` inside your local `.env` file before booting the stack.
