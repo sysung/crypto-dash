@@ -117,7 +117,9 @@ Test the agent using the prompt categories below:
 | **Market Volumetrics** | `"Did the volume for ETH-USD spike over the last hour, or is the market quiet?"` | Queries rolling volume aggregates in ClickHouse to determine volume change ratios. |
 
 ### 🧪 Fast Testing via CLI
-You can test the agent's response directly from your terminal:
+You can test the agent's response directly from your terminal.
+
+**Query with the default provider (Hugging Face):**
 ```bash
 curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \

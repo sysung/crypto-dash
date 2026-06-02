@@ -12,6 +12,10 @@ class ChatRequest(BaseModel):
         default=None, 
         description="Optional thread ID to preserve session memory checkpointer context"
     )
+    provider: Optional[str] = Field(
+        default="hf",
+        description="The AI provider to use ('hf' / 'huggingface' or 'gemini'). Defaults to 'hf'."
+    )
 
 
 class ChatResponse(BaseModel):

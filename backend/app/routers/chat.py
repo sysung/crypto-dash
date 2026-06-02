@@ -21,12 +21,20 @@ def run_chat_query(request: ChatRequest) -> ChatResponse:
     # 1. Establish DB Client (raises 503 error automatically if unreachable)
     db_client = get_db_client()
     
-    # 2. Get Configured LLM Provider
+    # 2. Determine LLM Provider (defaulting to 'hf')
+    requested_provider = request.provider or "hf"
+    if requested_provider.lower() in ("huggingface", "hf"):
+        provider_name = "hf"
+    elif requested_provider.lower() == "gemini":
+        provider_name = "gemini"
+    else:
+        provider_name = requested_provider
+
     try:
-        provider_instance = get_provider(config.AI_PROVIDER)
+        provider_instance = get_provider(provider_name)
     except Exception as e:
-        # Graceful fallback checking
-        fallback_name = "gemini" if config.GEMINI_API_KEY else "hf"
+        # Fallback to the alternate provider if the requested one fails
+        fallback_name = "gemini" if provider_name == "hf" else "hf"
         try:
             provider_instance = get_provider(fallback_name)
         except Exception as fallback_err:
@@ -34,7 +42,7 @@ def run_chat_query(request: ChatRequest) -> ChatResponse:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={
                     "error": "LLM Provider Initialization Failure",
-                    "details": f"Failed to load provider '{config.AI_PROVIDER}': {str(e)}. Fallback '{fallback_name}' also failed: {str(fallback_err)}"
+                    "details": f"Failed to load provider '{provider_name}': {str(e)}. Fallback '{fallback_name}' also failed: {str(fallback_err)}"
                 }
             )
             

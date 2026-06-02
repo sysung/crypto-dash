@@ -31,14 +31,16 @@ def test_health():
         return False
 
 
-def test_chat(question: str, history=None) -> Dict[str, Any]:
-    print(f"\n--- 🗣️ Testing POST /api/chat ---")
+def test_chat(question: str, history=None, provider: str = None) -> Dict[str, Any]:
+    print(f"\n--- 🗣️ Testing POST /api/chat (Provider: {provider or 'default'}) ---")
     print(f"Question: \"{question}\"")
     
     payload = {
         "question": question,
         "history": history or []
     }
+    if provider:
+        payload["provider"] = provider
     
     try:
         start_time = time.time()
@@ -80,9 +82,10 @@ if __name__ == "__main__":
         print("We will still attempt to run chat tests to verify the 503 Service Unavailable handling.")
 
     # 2. Conversational Refusal / Scope Test
-    print("\n[Test 1] Conversational / Out-of-Scope Query")
+    print("\n[Test 1] Conversational / Out-of-Scope Query (Default: Hugging Face)")
     test_chat("Who are you and what cryptos do you track?")
 
     # 3. Quantitative ClickHouse Query Test
-    print("\n[Test 2] Quantitative ClickHouse Query")
-    test_chat("What is the worst drawdown currently happening across all active tokens?")
+    print("\n[Test 2] Quantitative ClickHouse Query (Gemini)")
+    test_chat("What is the worst drawdown currently happening across all active tokens?", provider="gemini")
+
