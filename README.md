@@ -15,18 +15,19 @@ Before launching the stack, ensure you have:
 2. **Python 3.11+** (optional, for local client testing).
 3. **API Keys & Configuration** in a `.env` file in the project root:
    - **Coinbase API Keys**: **Not Required**. The ingestion pipeline streams from public WebSocket feeds.
-   - **AI_PROVIDER**: Determines which LLM service the agent uses (`gemini` or `hf`). Defaults to `gemini` if not specified.
-   - **GEMINI_API_KEY**: Required for the default `gemini` AI agent (obtain a free key from [Google AI Studio](https://aistudio.google.com/)).
-   - **HF_TOKEN**: Required if you switch `AI_PROVIDER=hf` to run serverless inference on Hugging Face (obtain from [Hugging Face Settings](https://huggingface.co/settings/tokens)).
+   - **AI_PROVIDER**: Determines which LLM service the agent uses (`gemini` or `hf`). Defaults to `hf` if not specified.
+   - **GEMINI_API_KEY**: Required if you switch `AI_PROVIDER=gemini` (obtain a free key from [Google AI Studio](https://aistudio.google.com/)).
+   - **HF_TOKEN**: Required for the default `hf` AI agent to run serverless inference on Hugging Face (obtain from [Hugging Face Settings](https://huggingface.co/settings/tokens)).
 
 Create a `.env` file in the root of the project:
 ```env
 # Selected LLM provider: 'gemini' or 'hf'
-AI_PROVIDER=gemini
+AI_PROVIDER=hf
 
 # LLM API credentials
 GEMINI_API_KEY=your_gemini_api_key_here
 HF_TOKEN=your_huggingface_access_token_here
+
 
 # Optional: Customize host ports to avoid local conflicts (default values shown)
 # KAFKA_PORT=9092

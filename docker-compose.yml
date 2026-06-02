@@ -84,11 +84,12 @@ services:
       - CLICKHOUSE_PORT=8123
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=password123
-      - AI_PROVIDER=${AI_PROVIDER:-gemini}
+      - AI_PROVIDER=${AI_PROVIDER:-hf}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - HF_TOKEN=${HF_TOKEN}
     depends_on:
       - clickhouse
+
     networks:
       - kafka-net
 

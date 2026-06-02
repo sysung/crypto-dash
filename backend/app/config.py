@@ -16,6 +16,7 @@ CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "password123")
 
-AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "hf")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 HF_TOKEN = os.getenv("HF_TOKEN")
+
