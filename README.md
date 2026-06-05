@@ -15,17 +15,11 @@ Before launching the stack, ensure you have:
 2. **Python 3.11+** (optional, for local client testing).
 3. **API Keys & Configuration** in a `.env` file in the project root:
    - **Coinbase API Keys**: **Not Required**. The ingestion pipeline streams from public WebSocket feeds.
-   - **AI_PROVIDER**: Determines which LLM service the agent uses (`gemini` or `hf`). Defaults to `hf` if not specified.
-   - **GEMINI_API_KEY**: Required if you switch `AI_PROVIDER=gemini` (obtain a free key from [Google AI Studio](https://aistudio.google.com/)).
-   - **HF_TOKEN**: Required for the default `hf` AI agent to run serverless inference on Hugging Face (obtain from [Hugging Face Settings](https://huggingface.co/settings/tokens)).
+   - **HF_TOKEN**: Required for the Hugging Face AI agent to run serverless inference (obtain from [Hugging Face Settings](https://huggingface.co/settings/tokens)).
 
 Create a `.env` file in the root of the project:
 ```env
-# Selected LLM provider: 'gemini' or 'hf'
-AI_PROVIDER=hf
-
 # LLM API credentials
-GEMINI_API_KEY=your_gemini_api_key_here
 HF_TOKEN=your_huggingface_access_token_here
 
 
@@ -34,7 +28,6 @@ HF_TOKEN=your_huggingface_access_token_here
 # KAFKA_UI_PORT=8080
 # CLICKHOUSE_HTTP_PORT=8123
 # CLICKHOUSE_NATIVE_PORT=9000
-# CHAT_BACKEND_PORT=8000
 ```
 
 ### 1. Boot the Stack
@@ -46,7 +39,7 @@ docker compose down -v
 # Boot the stack in detached mode
 docker compose up -d --build
 ```
-This initializes Kafka (KRaft), Kafka UI, ClickHouse, the Python Coinbase websocket producer, and the FastAPI Chat Agent.
+This initializes Kafka (KRaft), Kafka UI, ClickHouse, and the Python Coinbase websocket producer.
 
 ### 2. Access Dashboards & Web UIs
 Once the containers boot, you can access the following services locally (or using the custom ports defined in your `.env`):
@@ -57,8 +50,6 @@ Once the containers boot, you can access the following services locally (or usin
     *   An interactive browser-based SQL console.
     *   **User:** `default`
     *   **Password:** `password123`
-*   **🤖 FastAPI Agent Service**: [http://localhost:8000/api/health](http://localhost:8000/api/health)
-    *   Verify the AI Agent's database connectivity and model initialization status.
 
 
 ---
@@ -105,7 +96,7 @@ GROUP BY symbol;
 ---
 
 ## 🤖 Product 2: Conversational AI Analytics Agent
-The backend hosts an interactive **3-Stage Conversational Agentic Planner & SQL Router** powered by **LangGraph**. It translates natural language questions into safe ClickHouse SQL queries, runs them, and returns formatted responses.
+The project hosts a stateless **3-Stage Conversational Agentic Planner & SQL Router CLI** powered by **LangGraph**. It translates natural language questions into safe ClickHouse SQL queries, runs them, and returns formatted responses.
 
 ### 💡 Sample Prompts to Try
 Test the agent using the prompt categories below:
@@ -117,23 +108,17 @@ Test the agent using the prompt categories below:
 | **Spread Analysis** | `"Show me the latest best bid, best ask, and spread for SOL-USD computed from the L2 updates."` | Executes standard SQL filtering `crypto_l2_raw` by bid/offer sides and calculates the spread. |
 | **Market Volumetrics** | `"Did the volume for ETH-USD spike over the last hour, or is the market quiet?"` | Queries rolling volume aggregates in ClickHouse to determine volume change ratios. |
 
-### 🧪 Fast Testing via CLI
+### 🧪 Running the Agent via CLI
 You can test the agent's response directly from your terminal.
 
-**Query with the default provider (Hugging Face):**
+**Query the agent (default is Gemma/Gemini):**
 ```bash
-curl -X POST http://localhost:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Give me the average price of BTC-USD in our database"}'
+python3 agent/main.py -q "Give me the average price of BTC-USD in our database"
 ```
 
-To run the full backend testing suite:
+**Override the Hugging Face model:**
 ```bash
-# Install local requirements
-pip install -r backend/requirements.txt
-
-# Run automated tests
-python backend/tests/test_api.py
+python3 agent/main.py -q "Give me the average price of BTC-USD in our database" -m "google/gemma-2-9b-it"
 ```
 
 ---
@@ -222,18 +207,16 @@ flowchart TD
 1.  **Stage 0: Intent Classifier & Planner**: Evaluates user prompts with Chain-of-Thought (CoT) reasoning. Decides whether requests are out-of-scope (`conversational_refusal`), direct queries (`strict_quantitative`), or require interpretation (`vague_analytical`).
 2.  **Stage 1: Safety Guard & Database Executor**: If valid, strips comments and blocks forbidden keywords (`DROP`, `ALTER`, `TRUNCATE`) using a read-only guard (`is_query_safe(sql)`). Executed queries are run against ClickHouse with `MAX_ROWS` constraints.
 3.  **Stage 2: Insights Synthesizer**: Formulates grounded markdown responses from data rows. Speculative queries are prepended with an explicit, bold financial disclaimer.
-4.  **Stateful Memory**: conversational history is persisted across turns using LangGraph's native `MemorySaver` checkpointer.
+4.  **Stateless Execution**: each query runs in a fresh, independent turn.
 
 ---
 
 ## 💡 Developer Tips
 
-*   **Avoiding Gemini Rate Limits (`AI_PROVIDER=hf`)**: 
-    The free Gemini tier has a **15 RPM (Requests Per Minute)** limit. If you hit this limit during development or testing, configure `AI_PROVIDER=hf` and supply your `HF_TOKEN` in `.env` to run agent serverless queries via Hugging Face.
 *   **Wiping Data vs. Ingestion Pipeline Restarts**:
     Running `docker compose down -v` cleanly deletes all volume contents including Kafka offset markers and stored ClickHouse tables. If you only want to restart the ingestion stream (e.g., to reconnect to the WebSocket after network changes) without losing analytical data, run:
     ```bash
     docker compose restart crypto-producer
     ```
 *   **Handling Local Port Conflicts**:
-    You can customize the exposed host ports for any service by defining variables such as `KAFKA_UI_PORT` or `CHAT_BACKEND_PORT` inside your local `.env` file before booting the stack.
+    You can customize the exposed host ports for any service by defining variables such as `KAFKA_UI_PORT` or `CLICKHOUSE_HTTP_PORT` inside your local `.env` file before booting the stack.

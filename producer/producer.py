@@ -26,10 +26,14 @@ KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:29092")
 KAFKA_TOPIC_TICKER = "raw_crypto_ticker"
 KAFKA_TOPIC_L2 = "raw_crypto_l2"
 
-COINBASE_PRODUCTS: List[str] = [
-    "BTC-USD", "ETH-USD", "USDT-USD", "BNB-USD", 
-    "XRP-USD", "USDC-USD", "SOL-USD", "DOGE-USD"
-]
+env_products = os.getenv("COINBASE_PRODUCTS")
+if env_products:
+    COINBASE_PRODUCTS: List[str] = [p.strip() for p in env_products.split(",")]
+else:
+    COINBASE_PRODUCTS: List[str] = [
+        "BTC-USD", "ETH-USD", "USDT-USD", "BNB-USD", 
+        "XRP-USD", "USDC-USD", "SOL-USD", "DOGE-USD"
+    ]
 
 def run_ticker_producer():
     """Runs the ticker tick stream in a dedicated loop."""

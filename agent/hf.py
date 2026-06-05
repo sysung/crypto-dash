@@ -1,16 +1,17 @@
 import os
 import requests
-from base_provider import BaseLLMProvider
+from typing import Optional
 
-class HuggingFaceProvider(BaseLLMProvider):
+class HFProvider:
     """
     Inference provider for Hugging Face Serverless Inference API.
     """
-    def __init__(self, model_id: str = "google/gemma-4-26B-A4B-it"):
-        super().__init__(model_id)
+    def __init__(self, model_id: Optional[str] = None):
+        self.model_id = model_id or os.getenv("HF_MODEL_ID", "google/gemma-4-26B-A4B-it")
         self.token = os.getenv("HF_TOKEN")
         if not self.token:
             raise ValueError("❌ Missing HF_TOKEN inside your .env configuration file.")
+
 
     def generate(self, system_instruction: str, user_prompt: str) -> str:
         url = "https://router.huggingface.co/v1/chat/completions"
@@ -28,7 +29,6 @@ class HuggingFaceProvider(BaseLLMProvider):
             "max_tokens": 1000
         }
         
-        # Hardened with a timeout parameter of 30.0s
         response = requests.post(url, headers=headers, json=payload, timeout=30.0)
         if response.status_code != 200:
             raise RuntimeError(f"Hugging Face API returned error ({response.status_code}): {response.text}")

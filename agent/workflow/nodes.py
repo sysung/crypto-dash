@@ -2,11 +2,10 @@ import re
 from typing import Any, Dict, Optional
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from prompts import PLANNER_INSTRUCTION, RESPONDER_INSTRUCTION
-from state import AgentState, format_history
+from workflow.state import AgentState
 from utils.security import is_query_safe
 
 
@@ -17,13 +16,11 @@ def planner_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     Stage 0 Node: Evaluates intent, reasons via Chain-of-Thought, and plans database SQL query.
     """
     question = state["question"]
-    history = state.get("history", []) or []
     
     configurable = config.get("configurable", {})
     provider = configurable.get("provider")
     
-    history_context = format_history(history)
-    planner_prompt = f"{history_context}Current Question: {question}"
+    planner_prompt = f"Current Question: {question}"
     
     try:
         raw_planner_text = provider.generate(PLANNER_INSTRUCTION, planner_prompt)
@@ -60,7 +57,6 @@ def refusal_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     Stage 1 Fallback Node: Synthesizes a friendly out-of-scope refusal.
     """
     question = state["question"]
-    history = state.get("history", []) or []
     
     configurable = config.get("configurable", {})
     provider = configurable.get("provider")
@@ -75,16 +71,8 @@ Politely refuse to answer, and clearly explain that you only have access to real
     except Exception as e:
         synthesized_answer = f"I am unable to complete this request because the provider failed: {e}"
         
-    new_history = history + [
-        {"role": "user", "content": question},
-        {"role": "assistant", "content": synthesized_answer}
-    ]
-    if len(new_history) > 10:
-        new_history = new_history[-10:]
-        
     return {
-        "response": synthesized_answer,
-        "history": new_history
+        "response": synthesized_answer
     }
 
 
@@ -145,7 +133,6 @@ def insights_responder_node(state: AgentState, config: RunnableConfig) -> Dict[s
     Stage 2 Node: Synthesizes database results into a beautiful, grounded markdown answer.
     """
     question = state["question"]
-    history = state.get("history", []) or []
     thought = state["thought"]
     planned_sql = state["planned_sql"]
     sql_results = state["sql_results"]
@@ -156,19 +143,11 @@ def insights_responder_node(state: AgentState, config: RunnableConfig) -> Dict[s
     
     if execution_error:
         error_response = f"I encountered an issue executing your request: {execution_error}"
-        new_history = history + [
-            {"role": "user", "content": question},
-            {"role": "assistant", "content": error_response}
-        ]
-        if len(new_history) > 10:
-            new_history = new_history[-10:]
         return {
-            "response": error_response,
-            "history": new_history
+            "response": error_response
         }
         
-    history_context = format_history(history)
-    responder_prompt = f"""{history_context}Current User Question: {question}
+    responder_prompt = f"""Current User Question: {question}
 Planner CoT Thought: {thought}
 SQL Executed: {planned_sql}
 Database Results:
@@ -179,16 +158,8 @@ Database Results:
     except Exception as e:
         synthesized_answer = f"Failed to synthesize response: {e}"
         
-    new_history = history + [
-        {"role": "user", "content": question},
-        {"role": "assistant", "content": synthesized_answer}
-    ]
-    if len(new_history) > 10:
-        new_history = new_history[-10:]
-        
     return {
-        "response": synthesized_answer,
-        "history": new_history
+        "response": synthesized_answer
     }
 
 
@@ -230,6 +201,5 @@ workflow.add_edge("executor", "responder")
 workflow.add_edge("refusal", END)
 workflow.add_edge("responder", END)
 
-# Compile LangGraph App with built-in checkpointer memory support
-memory_checkpointer = MemorySaver()
-agent_app = workflow.compile(checkpointer=memory_checkpointer)
+# Compile LangGraph App statelessly
+agent_app = workflow.compile()
