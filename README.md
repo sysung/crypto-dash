@@ -1,4 +1,5 @@
-# 🪙 Real-Time Crypto Streaming Pipeline
+# 🪙 Crypto AI Chatbot: Real-Time Data Streaming & Analytics Pipeline
+
 
 A production-grade, real-time data streaming pipeline. This architecture ingests high-frequency trade events from Coinbase, buffers them via Apache Kafka, and streams them directly into a ClickHouse OLAP database for sub-second analytical querying and real-time visualization. It features a stateful, multi-stage LangGraph AI Agent to query your real-time database via natural language.
 
