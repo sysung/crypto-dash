@@ -18,8 +18,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
-from ticker_producer import TickerProducer
-from l2_producer import L2Producer
+from producers import TickerProducer, L2Producer
 
 # Constants and Configuration
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:29092")

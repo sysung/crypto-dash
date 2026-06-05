@@ -1,7 +1,7 @@
 import queue
 import logging
 from typing import Any, Dict, List
-from base_producer import BaseCoinbaseProducer
+from .base_producer import BaseCoinbaseProducer
 
 logger = logging.getLogger(__name__)
 

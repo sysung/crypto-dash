@@ -9,7 +9,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the actual python streaming scripts
-COPY *.py .
+COPY main.py .
+COPY producers/ producers/
 
 # Tell the container what command to run when it boots up
-CMD ["python", "producer.py"]
+CMD ["python", "main.py"]
