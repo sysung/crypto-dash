@@ -71,7 +71,30 @@ services:
     networks:
       - kafka-net
 
-
+  # 5. Apache Airflow (Orchestrator)
+  airflow:
+    image: apache/airflow:2.8.1-python3.10
+    container_name: airflow
+    restart: always
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - _PIP_ADDITIONAL_REQUIREMENTS=dbt-clickhouse
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-password123}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./dbt:/opt/airflow/dbt
+    ports:
+      - "${AIRFLOW_PORT:-8082}:8080"
+    command: standalone
+    depends_on:
+      - clickhouse
+    networks:
+      - kafka-net
 
 networks:
   kafka-net:
