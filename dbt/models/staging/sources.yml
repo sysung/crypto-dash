@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: default
+    database: default
+    tables:
+      - name: crypto_ticks_raw
+      - name: crypto_l2_raw
